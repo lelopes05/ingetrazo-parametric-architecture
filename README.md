@@ -4,7 +4,7 @@ Experimental parametric architecture and structure tools for [IngeTrazo](https:/
 
 Current development version: **0.10.2-dev**.
 
-The project is being developed from an architect's workflow perspective, with iterative real-world testing and AI-assisted implementation. The main principle is simple: **reuse IngeTrazo's native tools and extension APIs whenever possible, and add only the architectural/BIM behavior that is missing.**
+The project is being developed from an architect's workflow perspective, with iterative real-world testing. The main principle is simple: **reuse IngeTrazo's native tools and extension APIs whenever possible, and add only the architectural/BIM behavior that is missing.**
 
 ## Current tools
 
@@ -41,8 +41,6 @@ Testers, bug reports, workflow feedback and code contributions are welcome. Arch
 ## Author / development
 
 Architecture, workflow design and testing: **Leandro Lopes**.
-
-Implementation has been developed iteratively with AI assistance, guided by direct testing in IngeTrazo and its public extension API.
 
 ## License
 
