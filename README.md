@@ -25,13 +25,8 @@ See [FEATURES.md](FEATURES.md) for the detailed capability matrix and [ROADMAP.m
 
 ## Development previews
 
-These are **UI concept mockups**, not runtime screenshots. They illustrate the direction of the unified OpenTrace BIM workspace, resource libraries and Layer Combinations integration while the current tested baseline remains 0.10.2-dev.
+<img width="1910" height="1031" alt="image" src="https://github.com/user-attachments/assets/0b05b4fa-0de4-4d39-89a7-569fba6abab1" />
 
-![OpenTrace BIM unified architecture workspace](docs/images/opentrace-overview.svg)
-
-![OpenTrace BIM profile and office library](docs/images/opentrace-profile-library.svg)
-
-![OpenTrace BIM Layer Combinations](docs/images/opentrace-layer-combinations.svg)
 
 ---
 
