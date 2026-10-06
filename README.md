@@ -225,6 +225,16 @@ The package/folder name remains `arquitetura_parametrica` for compatibility whil
 
 ---
 
+## Production-oriented IngeTrazo API consumer
+
+OpenTrace BIM is also the **production-oriented API consumer** behind the proposed generic IngeTrazo Resource / Library API currently under review.
+
+That proposal is being exercised against real architectural resource needs — construction assemblies, complete element presets, reusable Complex Profiles, structural catalogues and portable office libraries — rather than only against a minimal demonstration plugin.
+
+The intended boundary is deliberate: IngeTrazo core remains domain-neutral while OpenTrace BIM owns architectural schemas, validation, UI and geometry.
+
+---
+
 ## Development visibility
 
 This repository is intentionally public **before the toolkit is “finished”**.
