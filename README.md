@@ -6,7 +6,7 @@
 
 ![Status](https://img.shields.io/badge/status-active%20development-2ea44f)
 ![Tested build](https://img.shields.io/badge/tested-0.10.2--dev-blue)
-![IngeTrazo](https://img.shields.io/badge/IngeTrazo-0.5.7-blueviolet)
+![IngeTrazo](https://img.shields.io/badge/IngeTrazo-0.5.7%2B-blueviolet)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
 OpenTrace BIM is an architect-driven parametric/BIM toolkit focused on **editable building elements, reusable construction assemblies, hosted relationships, architectural geometry and interoperable data**.
