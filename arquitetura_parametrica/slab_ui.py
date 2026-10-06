@@ -51,27 +51,18 @@ from .slab_tool import SlabTool
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
 from .i18n import t, ui_locale
 from .snap_utils import angular_snap_result
+from .icons import icon as pa_icon, set_symbol_icon
 
 log = logging.getLogger("ingetrazo.plugins.arquitetura_parametrica.slab")
 SLAB_SNAP_COLOR = (0.55, 0.36, 0.84)
 
 
 def slab_icon():
-    pm = QPixmap(32, 32); pm.fill(Qt.transparent)
-    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(QPen(QColor("#42658d"), 2)); p.setBrush(QColor("#a7bfd9"))
-    p.drawRect(5, 8, 22, 13)
-    p.setBrush(QColor("#849bb6")); p.drawRect(5, 21, 22, 4)
-    p.drawLine(5, 21, 27, 21)
-    p.end(); return QIcon(pm)
+    return pa_icon("slab")
 
 
 def composite_slab_icon():
-    pm=QPixmap(32,32);pm.fill(Qt.transparent);p=QPainter(pm);p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(QPen(QColor("#42658d"),1.5))
-    for y,c in ((8,"#c9d9e8"),(14,"#9db4ca"),(20,"#d6c39d")):
-        p.setBrush(QColor(c));p.drawRect(5,y,22,6)
-    p.end();return QIcon(pm)
+    return pa_icon("slab_composite")
 
 
 def selected_slabs(scene):
@@ -118,7 +109,6 @@ class SlabController(QObject):
             app.add_snap_provider(self._snap_provider)
             app.viewport.installEventFilter(self)
             app.viewport.sceneVersionChanged.connect(self.schedule_refresh)
-            app.viewport.measurementChanged.connect(self.schedule_refresh)
             self._ui_ready = True; self.schedule_refresh()
         except Exception as exc:
             self._init_error = f"{type(exc).__name__}: {exc}"
@@ -139,7 +129,10 @@ class SlabController(QObject):
         self.hint = QLabel(); self.hint.setWordWrap(True); lay.addWidget(self.hint)
         self.feedback = QLabel(); self.feedback.setWordWrap(True); lay.addWidget(self.feedback); lay.addStretch()
         ver = QLabel(f"{t('Lajes paramétricas')} · v{__version__}"); ver.setStyleSheet("color:#777; font-size:9pt;"); lay.addWidget(ver)
-        self.dock = self.app.add_panel(t("Laje"), self.panel, name="slab"); self.dock.hide(); self.refresh_level_options(); self._load_defaults()
+        self.dock = getattr(self.app.window, "_arquitetura_parametrica_master_dock", None)
+        if self.dock is None:
+            self.dock = self.app.add_panel(t("Laje"), self.panel, name="slab"); self.dock.hide()
+        self.refresh_level_options(); self._load_defaults()
 
     def _make_action(self):
         self.action = QAction(slab_icon(), t("Laje paramétrica"), self.app.window); self.action.setObjectName("arquitetura_parametrica_slab_action"); self.action.setCheckable(True); self.action.setVisible(True); self.action.setToolTip(t("Laje paramétrica\nRetângulo por diagonal, base+largura ou polígono livre."))
@@ -190,7 +183,7 @@ class SlabController(QObject):
 
         def add(symbol, tip, mode):
             b = QToolButton(self.mode_palette)
-            b.setText(symbol)
+            set_symbol_icon(b, symbol)
             b.setToolTip(tip)
             b.setCheckable(True)
             b.setAutoRaise(True)
@@ -208,7 +201,7 @@ class SlabController(QObject):
     def _make_edit_palette(self):
         self.edit_palette = RadialPalette(self.app.window, popup=False, role="edit"); self.edit_palette.setObjectName("ap_slab_edit_palette"); row=self.edit_palette.row
         def add(symbol, tip, slot):
-            b=QToolButton(self.edit_palette); b.setText(symbol); b.setToolTip(tip); b.setAutoRaise(True); b.setFixedSize(34,34); f=b.font(); f.setPointSize(16); b.setFont(f); b.clicked.connect(slot); row.addWidget(b); return b
+            b=QToolButton(self.edit_palette); set_symbol_icon(b, symbol); b.setToolTip(tip); b.setAutoRaise(True); b.setFixedSize(34,34); f=b.font(); f.setPointSize(16); b.setFont(f); b.clicked.connect(slot); row.addWidget(b); return b
         self.insert_btn=add("＋", t("Inserir vértice nesta aresta."), self.begin_insert_vertex)
         self.stretch_btn=add("⇱", t("Estender/extrudar esta aresta perpendicularmente, preservando os dois vértices atuais como ancoragens."), self.begin_stretch_edge)
         self.curve_btn=add("⌒", t("Curvar esta aresta mantendo suas extremidades."), self.begin_curve_edge)
@@ -252,10 +245,13 @@ class SlabController(QObject):
 
     def refresh_material_options(self):
         current=self.material.currentData() if self.material.count() else self.defaults.get("material_name")
-        self.material.blockSignals(True);self.material.clear();self.material.addItem(t("Padrão"),None)
-        for name in material_names(self.app.scene):self.material.addItem(name,name)
-        i=self.material.findData(current);self.material.setCurrentIndex(i if i>=0 else 0);self.material.blockSignals(False)
-        if hasattr(self,"layer_editor"):self.layer_editor.set_material_names(material_names(self.app.scene))
+        names=material_names(self.app.scene);key=tuple(names)
+        if getattr(self,"_material_options_key",None)!=key:
+            self.material.blockSignals(True);self.material.clear();self.material.addItem(t("Padrão"),None)
+            for name in names:self.material.addItem(name,name)
+            i=self.material.findData(current);self.material.setCurrentIndex(i if i>=0 else 0);self.material.blockSignals(False)
+            self._material_options_key=key
+        if hasattr(self,"layer_editor"):self.layer_editor.set_material_names(names)
 
     def level_changed(self,*_):
         if self._loading:return
@@ -305,7 +301,15 @@ class SlabController(QObject):
             if kind=="composite":self.defaults["thickness"]=sum(float(x["thickness"]) for x in self.defaults["layers"])
         finally:self._loading=False
         self.action.setIcon(composite_slab_icon() if kind=="composite" else slab_icon())
-        self._update_structure_ui();self.start_drawing()
+        self._update_structure_ui()
+        # Do not reactivate/toggle the same slab tool just to change the
+        # simple/composite structure.  One click must be enough to switch.
+        if self.app.viewport.active_tool is self.tool:
+            self.schedule_refresh()
+            self.message("Clique no primeiro ponto da laje. Retângulo por diagonal é o modo padrão.")
+            self.app.viewport.setFocus()
+        else:
+            self.start_drawing()
 
     def slab_reference_z(self,slab):
         vals=read_slab(slab);return vals["base_z"]+(vals["thickness"] if vals.get("reference_plane")=="top" else 0.0)
@@ -646,3 +650,4 @@ class SlabController(QObject):
                     hy-=12.0;shifted=True
                 if shifted:painter.drawLine(QPointF(q[0],q[1]),QPointF(hx,hy+4))
                 painter.drawEllipse(QRectF(hx-4,hy-4,8,8));painter.drawLine(QPointF(hx-5.5,hy),QPointF(hx+5.5,hy))
+

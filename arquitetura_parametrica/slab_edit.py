@@ -185,13 +185,13 @@ class MoveSlabVertexTool(_SlabEditBase):
     MERGE_TOL = 1.0e-4
 
     def __init__(self, controller):
-        super().__init__(controller); self.original = None; self.specs=None; self._merge=False
+        super().__init__(controller); self.original = None; self.specs=None; self._merge=False; self.move_reference=None
 
     def arm(self, slab, index, anchor):
-        super().arm(slab, index, anchor); self.original = slab_polygon_world(slab, reference=True); self.specs=slab_edge_specs(slab); self._merge=False
+        super().arm(slab, index, anchor); self.original = slab_polygon_world(slab, reference=True); self.specs=slab_edge_specs(slab); self._merge=False; self.move_reference=None; self.start_point=None; self.hover=None
 
     def reset(self):
-        super().reset(); self.original = None; self.specs=None; self._merge=False
+        super().reset(); self.original = None; self.specs=None; self._merge=False; self.move_reference=None
 
     def _ctx_point(self,ctx):
         snap=getattr(ctx,"snap",None)
@@ -219,7 +219,14 @@ class MoveSlabVertexTool(_SlabEditBase):
 
     def _candidate(self, p):
         if self.original is None: return None
-        n=len(self.original); i=self.index%n; q=QVector3D(p.x(),p.y(),self.original[0].z()); self._merge=False
+        n=len(self.original); i=self.index%n
+        current=QVector3D(self.original[i])
+        if self.move_reference is None:
+            q=QVector3D(current)
+        else:
+            ref=self.move_reference
+            q=QVector3D(current.x()+p.x()-ref.x(), current.y()+p.y()-ref.y(), self.original[0].z())
+        self._merge=False
         nearest=None
         for j,v in enumerate(self.original):
             if j==i: continue
@@ -230,18 +237,24 @@ class MoveSlabVertexTool(_SlabEditBase):
         pts=[QVector3D(v) for v in self.original]; pts[i]=q
         return pts,[dict(s) for s in self.specs]
 
-    def on_hover(self, ctx): self.hover=self._ctx_point(ctx); ctx.viewport.update()
+    def on_hover(self, ctx):
+        if self.move_reference is None:return
+        self.hover=self._ctx_point(ctx); ctx.viewport.update()
 
     def on_click(self, ctx):
         try:
-            cand=self._candidate(self._ctx_point(ctx))
+            p=self._ctx_point(ctx)
+            if self.move_reference is None:
+                self.move_reference=QVector3D(p);self.start_point=QVector3D(p);self.hover=None
+                self.controller.message("Agora clique no ponto de destino do vértice da laje.");ctx.viewport.update();return
+            cand=self._candidate(p)
             if cand is None: raise SlabError("Escolha primeiro um vértice da laje.")
             self._commit(ctx.viewport,*cand,"Vértices unidos." if self._merge else "Vértice da laje movido.")
         except SlabError as exc: self.controller.message(str(exc),error=True)
         ctx.viewport.update()
 
     def rubber_band_lines(self):
-        if self.hover is None:return []
+        if self.hover is None or self.move_reference is None:return []
         try:
             cand=self._candidate(self.hover); return [] if cand is None else _preview_lines(*cand)
         except SlabError:return []
@@ -351,7 +364,7 @@ class MoveSlabTool(AxisMagnet, Tool):
 
     def arm(self, slab, _index, anchor):
         self.slab=slab; self.anchor=QVector3D(anchor); self.scene=self.controller.app.scene
-        self.start_point=QVector3D(anchor); self.cursor_origin=None; self.delta=QVector3D(0,0,0)
+        self.start_point=None; self.cursor_origin=None; self.delta=QVector3D(0,0,0)
 
     def reset(self):
         self.slab=None; self.anchor=None; self.scene=None; self.cursor_origin=None; self.start_point=None
@@ -363,7 +376,7 @@ class MoveSlabTool(AxisMagnet, Tool):
         try:
             if self.slab not in viewport.scene.groups: raise SlabError("A laje não está mais disponível.")
             viewport.begin_groups_preview([self.slab]);self.preview=True
-            self.controller.message("Mova a laje no plano horizontal e clique." if self.mode=="xy" else "Mova a laje somente em Z e clique.")
+            self.controller.message("Clique no ponto de referência para mover a laje no plano horizontal." if self.mode=="xy" else "Clique no ponto de referência para mover a laje na vertical.")
         except SlabError as exc:self.controller.message(str(exc),error=True);QTimer.singleShot(0,self.controller.return_to_select)
 
     def on_deactivate(self,viewport):
@@ -379,16 +392,16 @@ class MoveSlabTool(AxisMagnet, Tool):
         return QVector3D(p.x()-o.x(),p.y()-o.y(),0) if self.mode=="xy" else QVector3D(0,0,p.z()-o.z())
 
     def on_hover(self,ctx):
-        if self.slab is None:return
-        if self.cursor_origin is None:
-            self.cursor_origin=QVector3D(ctx.world); self.start_point=QVector3D(ctx.world)
+        if self.slab is None or self.cursor_origin is None:return
         self.delta=self._delta(ctx.world)
         if self.preview:ctx.viewport.set_groups_preview_offset(self.delta)
         ctx.viewport.update()
 
     def on_click(self,ctx):
         try:
-            if self.cursor_origin is None:self.cursor_origin=QVector3D(ctx.world)
+            if self.cursor_origin is None:
+                self.cursor_origin=QVector3D(ctx.world);self.start_point=QVector3D(ctx.world)
+                self.controller.message("Agora clique no ponto de destino da laje.");ctx.viewport.update();return
             self.delta=self._delta(ctx.world)
             if self.preview:ctx.viewport.end_groups_preview();self.preview=False
             if self.delta.length()>1e-9:

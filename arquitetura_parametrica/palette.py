@@ -56,6 +56,8 @@ class DraggablePalette(QFrame):
 
     def __init__(self, owner_window, *, popup=False):
         flags = (Qt.Popup if popup else Qt.Tool) | Qt.FramelessWindowHint
+        if not popup:
+            flags |= Qt.WindowDoesNotAcceptFocus
         super().__init__(owner_window, flags)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
         if not popup:
@@ -165,6 +167,8 @@ class RadialPalette(QFrame):
 
     def __init__(self, owner_window, *, popup=True, ring_capacity=8, role="edit"):
         flags = (Qt.Popup if popup else Qt.Tool) | Qt.FramelessWindowHint
+        if not popup:
+            flags |= Qt.WindowDoesNotAcceptFocus
         super().__init__(owner_window, flags)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)

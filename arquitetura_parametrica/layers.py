@@ -15,58 +15,164 @@ MIN_LAYER = 0.001
 MAX_LAYER = 10000.0
 
 
+# Semantic BIM purpose of a physical layer.  This is independent from
+# ``role``: role identifies the one geometric/reference core used by the
+# existing wall/slab geometry, while function says what the layer does.
+FUNCTION_CHOICES = (
+    ("structure", "Estrutura / vedação"),
+    ("substrate", "Substrato / base"),
+    ("bonding", "Assentamento / colagem"),
+    ("insulation", "Isolamento térmico/acústico"),
+    ("waterproofing", "Impermeabilização"),
+    ("membrane", "Membrana / barreira"),
+    ("finish", "Revestimento / acabamento"),
+    ("technical", "Camada técnica"),
+    ("other", "Outro"),
+)
+FUNCTION_CODES = {code for code, _label in FUNCTION_CHOICES}
+FUNCTION_LABELS = dict(FUNCTION_CHOICES)
+
+# Stable export-friendly category names.  IFC MaterialLayer.Category is free
+# text, so these codes can later be mapped directly without changing presets.
+FUNCTION_CATEGORIES = {
+    "structure": "Structure",
+    "substrate": "Substrate",
+    "bonding": "Bonding",
+    "insulation": "Insulation",
+    "waterproofing": "Waterproofing",
+    "membrane": "Membrane",
+    "finish": "Finish",
+    "technical": "Technical",
+    "other": "Other",
+}
+
+
+def normalize_function(value, role="finish"):
+    code = str(value or "").strip()
+
+    # Compatibility aliases from experimental builds / imported data.
+    aliases = {
+        "core": "structure",
+        "structural": "structure",
+        "thermal": "insulation",
+        "thermal_air": "insulation",
+        "air": "insulation",
+        "waterproof": "waterproofing",
+        "coating": "finish",
+    }
+    code = aliases.get(code, code)
+
+    if code in FUNCTION_CODES:
+        return code
+    return "structure" if role == "core" else "finish"
+
+
+def function_label(value):
+    return FUNCTION_LABELS.get(
+        normalize_function(value, "finish"),
+        FUNCTION_LABELS["other"],
+    )
+
+
+def function_category(value):
+    return FUNCTION_CATEGORIES.get(
+        normalize_function(value, "finish"),
+        FUNCTION_CATEGORIES["other"],
+    )
+
 def _uid():
     return uuid.uuid4().hex[:12]
 
 
-def core_layer(thickness: float, material_name=None, name="Núcleo") -> dict:
+def core_layer(thickness: float, material_name=None, name="Núcleo",
+               function="structure") -> dict:
     return {
-        "id": _uid(), "name": str(name), "role": "core",
-        "thickness": float(thickness), "material_name": material_name or None,
+        "id": _uid(),
+        "name": str(name),
+        "role": "core",
+        "function": normalize_function(function, "core"),
+        "thickness": float(thickness),
+        "material_name": material_name or None,
     }
 
 
-def finish_layer(thickness: float = 0.02, material_name=None, name="Camada") -> dict:
+def finish_layer(thickness: float = 0.02, material_name=None, name="Camada",
+                 function="finish") -> dict:
     return {
-        "id": _uid(), "name": str(name), "role": "finish",
-        "thickness": float(thickness), "material_name": material_name or None,
+        "id": _uid(),
+        "name": str(name),
+        "role": "finish",
+        "function": normalize_function(function, "finish"),
+        "thickness": float(thickness),
+        "material_name": material_name or None,
     }
 
 
 def normalize_layers(raw, core_thickness=0.10, material_name=None) -> list[dict]:
-    out=[]
+    """Normalize/migrate a physical composite stack.
+
+    Legacy records did not have ``function``.  They remain fully readable:
+    the old core migrates to ``structure`` and old non-core layers to
+    ``finish``.  New semantic fields therefore do not invalidate existing
+    walls, slabs or presets.
+    """
+    out = []
     if isinstance(raw, (list, tuple)):
         for item in raw:
             if not isinstance(item, dict):
                 continue
             try:
-                t=float(item.get("thickness", 0.0))
+                thickness = float(item.get("thickness", 0.0))
             except (TypeError, ValueError):
                 continue
-            if not math.isfinite(t) or t < MIN_LAYER or t > MAX_LAYER:
+            if (
+                not math.isfinite(thickness)
+                or thickness < MIN_LAYER
+                or thickness > MAX_LAYER
+            ):
                 continue
-            role="core" if item.get("role")=="core" else "finish"
-            mat=item.get("material_name")
+
+            role = "core" if item.get("role") == "core" else "finish"
+            material = item.get("material_name")
+            name = " ".join(
+                str(
+                    item.get("name")
+                    or ("Núcleo" if role == "core" else "Camada")
+                ).split()
+            )
+            if not name:
+                name = "Núcleo" if role == "core" else "Camada"
+
             out.append({
                 "id": str(item.get("id") or _uid()),
-                "name": str(item.get("name") or ("Núcleo" if role=="core" else "Camada")),
+                "name": name,
                 "role": role,
-                "thickness": t,
-                "material_name": str(mat).strip() if mat not in (None, "") else None,
+                "function": normalize_function(item.get("function"), role),
+                "thickness": thickness,
+                "material_name": (
+                    str(material).strip()
+                    if material not in (None, "")
+                    else None
+                ),
             })
-    cores=[i for i,x in enumerate(out) if x["role"]=="core"]
-    if not cores:
-        out.insert(len(out)//2, core_layer(core_thickness, material_name))
-    elif len(cores)>1:
-        keep=cores[0]
-        for i,x in enumerate(out):
-            if i!=keep and x["role"]=="core": x["role"]="finish"
-    # Core inherits object material only when it has no explicit material.
-    ci=next(i for i,x in enumerate(out) if x["role"]=="core")
-    if out[ci].get("material_name") is None and material_name:
-        out[ci]["material_name"]=material_name
-    return out
 
+    cores = [i for i, layer in enumerate(out) if layer["role"] == "core"]
+    if not cores:
+        out.insert(
+            len(out) // 2,
+            core_layer(core_thickness, material_name),
+        )
+    elif len(cores) > 1:
+        keep = cores[0]
+        for i, layer in enumerate(out):
+            if i != keep and layer["role"] == "core":
+                layer["role"] = "finish"
+
+    ci = next(i for i, layer in enumerate(out) if layer["role"] == "core")
+    if out[ci].get("material_name") is None and material_name:
+        out[ci]["material_name"] = material_name
+
+    return out
 
 def default_composite(core_thickness=0.10, material_name=None) -> list[dict]:
     return [core_layer(core_thickness, material_name)]

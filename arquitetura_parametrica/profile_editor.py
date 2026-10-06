@@ -15,7 +15,7 @@ import uuid
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap, QVector3D
 from PySide6.QtWidgets import (QAbstractItemView, QFormLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QMessageBox, QPushButton,
+                               QLineEdit, QMessageBox, QPushButton, QTreeWidget, QTreeWidgetItem,
                                QToolButton, QVBoxLayout, QWidget)
 
 from core.history import History
@@ -26,22 +26,14 @@ from .i18n import t, ui_locale
 from .profile_library import (delete_profile, duplicate_profile, load_profiles,
                               upsert_profile)
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
+from .icons import icon as pa_icon, set_symbol_icon
 
 PROFILE_ORIGIN_TOOL_KEY = "arquitetura_parametrica_profile_origin"
 _EPS = 1.0e-7
 
 
 def profile_icon():
-    pm=QPixmap(32,32); pm.fill(Qt.transparent)
-    p=QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(QPen(QColor("#42658d"),2.2)); p.setBrush(Qt.NoBrush)
-    # An intentionally asymmetric section with a small inner void: reads as a
-    # profile instead of another rectangle/wall icon at toolbar size.
-    pts=[(6,25),(6,7),(20,7),(25,12),(20,17),(13,17),(13,25)]
-    for a,b in zip(pts,pts[1:]): p.drawLine(a[0],a[1],b[0],b[1])
-    p.drawLine(13,25,6,25)
-    p.setPen(QPen(QColor("#c46b2d"),1.7)); p.drawEllipse(17,10,4,4)
-    p.end(); return QIcon(pm)
+    return pa_icon("profile")
 
 
 def _doc_version(scene):
@@ -214,6 +206,7 @@ class ProfileWorkspace:
     def __init__(self,controller,profile=None):
         self.controller=controller;self.profile_id=(profile or {}).get("id")
         self.profile_name=(profile or {}).get("name") or "Novo Perfil"
+        self.profile_folder=(profile or {}).get("folder") or "Meus Perfis"
         self.scene=Scene()
         # Respect the project's unit/display choices while the model is parked.
         model=controller.app.scene
@@ -228,14 +221,14 @@ class ProfileWorkspace:
         # Keep all native/extension drawing helpers available. Architecture's
         # own 3D creators already refuse to run while a workspace is active.
         self.allowed_tools=None
-        self._saved_version=_doc_version(self.scene);self._saved_anchor=list(self.anchor);self._saved_name=self.profile_name
+        self._saved_version=_doc_version(self.scene);self._saved_anchor=list(self.anchor);self._saved_name=self.profile_name;self._saved_folder=self.profile_folder
         self._force_leave=False
     def title(self): return f"Perfil Complexo — {self.profile_name}"
     def is_dirty(self): return (_doc_version(self.scene)!=self._saved_version or
                                 list(self.anchor)!=self._saved_anchor or
-                                self.profile_name!=self._saved_name)
+                                self.profile_name!=self._saved_name or self.profile_folder!=self._saved_folder)
     def mark_clean(self):
-        self._saved_version=_doc_version(self.scene);self._saved_anchor=list(self.anchor);self._saved_name=self.profile_name
+        self._saved_version=_doc_version(self.scene);self._saved_anchor=list(self.anchor);self._saved_name=self.profile_name;self._saved_folder=self.profile_folder
     def save(self): return bool(self.controller.save_workspace(leave=False))
     def save_as(self): return self.save()
     def confirm_leave(self):
@@ -249,7 +242,7 @@ class ProfileWorkspace:
         return True
     def new(self):
         if not self.confirm_leave():return
-        self.scene.clear();self.history.clear();self.profile_id=None;self.profile_name="Novo Perfil";self.anchor=[0.0,0.0];self.mark_clean()
+        self.scene.clear();self.history.clear();self.profile_id=None;self.profile_name="Novo Perfil";self.profile_folder="Meus Perfis";self.anchor=[0.0,0.0];self.mark_clean()
         self.controller.sync_workspace_ui();self.controller.app.viewport.notify_scene_changed()
     def left(self): self.controller.workspace_left(self)
 
@@ -267,14 +260,15 @@ class ComplexProfileController(QObject):
         self.panel=QWidget();lay=QVBoxLayout(self.panel);lay.setContentsMargins(6,6,6,6)
         self.heading=QLabel(t("Perfis Complexos"));lay.addWidget(self.heading)
         self.library_widget=QWidget();lb=QVBoxLayout(self.library_widget);lb.setContentsMargins(0,0,0,0)
-        self.list=QListWidget();self.list.setSelectionMode(QAbstractItemView.SingleSelection);self.list.itemDoubleClicked.connect(lambda _i:self.edit_selected());lb.addWidget(self.list)
-        row=QHBoxLayout();self.new_btn=QPushButton(t("Novo"));self.edit_btn=QPushButton(t("Editar"));self.dup_btn=QToolButton();self.dup_btn.setText("⧉");self.dup_btn.setToolTip(t("Duplicar perfil"));self.del_btn=QToolButton();self.del_btn.setText("⌫");self.del_btn.setToolTip(t("Excluir perfil"))
+        self.list=QTreeWidget();self.list.setHeaderHidden(True);self.list.setSelectionMode(QAbstractItemView.SingleSelection);self.list.itemDoubleClicked.connect(lambda _i,_c=0:self.edit_selected());lb.addWidget(self.list)
+        row=QHBoxLayout();self.new_btn=QPushButton(t("Novo"));self.edit_btn=QPushButton(t("Editar"));self.dup_btn=QToolButton();self.dup_btn.setText("⧉");self.dup_btn.setToolTip(t("Duplicar perfil"));self.del_btn=QToolButton();set_symbol_icon(self.del_btn,"⌫",18);self.del_btn.setToolTip(t("Excluir perfil"))
         self.new_btn.clicked.connect(self.new_profile);self.edit_btn.clicked.connect(self.edit_selected);self.dup_btn.clicked.connect(self.duplicate_selected);self.del_btn.clicked.connect(self.delete_selected)
         for w in (self.new_btn,self.edit_btn,self.dup_btn,self.del_btn):row.addWidget(w)
-        lb.addLayout(row);self.library_help=QLabel(t("Os perfis salvos são favoritos do usuário e ficam disponíveis em todos os projetos."));self.library_help.setWordWrap(True);lb.addWidget(self.library_help);lay.addWidget(self.library_widget)
+        lb.addLayout(row);self.library_help=QLabel(t("Perfis incluídos vêm organizados por catálogo. Perfis pessoais podem usar qualquer pasta e ficam disponíveis em todos os projetos."));self.library_help.setWordWrap(True);lb.addWidget(self.library_help);lay.addWidget(self.library_widget)
 
         self.editor_widget=QWidget();eb=QVBoxLayout(self.editor_widget);eb.setContentsMargins(0,0,0,0)
         form=QFormLayout();self.name=QLineEdit();self.name.textChanged.connect(self.name_changed);form.addRow(t("Nome"),self.name)
+        self.folder=QLineEdit();self.folder.setPlaceholderText("Meus Perfis / Categoria");self.folder.textChanged.connect(self.folder_changed);form.addRow(t("Pasta"),self.folder)
         self.anchor_x=QDoubleSpinBox();self.anchor_y=QDoubleSpinBox()
         for f in (self.anchor_x,self.anchor_y):f.setLocale(ui_locale());f.setDecimals(4);f.setRange(-10000,10000);f.setSingleStep(.01);f.setSuffix(" m");f.setKeyboardTracking(False);f.valueChanged.connect(self.anchor_numeric_changed)
         form.addRow(t("Origem X"),self.anchor_x);form.addRow(t("Origem Y"),self.anchor_y);eb.addLayout(form)
@@ -282,7 +276,9 @@ class ComplexProfileController(QObject):
         self.editor_hint=QLabel(t("Desenhe no plano 2D usando as ferramentas normais do IngeTrazo. Linhas, arcos, círculos e Curve Tools podem compor contornos fechados; contornos internos viram vazios."));self.editor_hint.setWordWrap(True);eb.addWidget(self.editor_hint)
         brow=QHBoxLayout();self.cancel_btn=QPushButton(t("Cancelar"));self.save_btn=QPushButton(t("Salvar Perfil"));self.cancel_btn.clicked.connect(self.cancel_workspace);self.save_btn.clicked.connect(lambda:self.save_workspace(leave=True));brow.addWidget(self.cancel_btn);brow.addWidget(self.save_btn);eb.addLayout(brow)
         self.feedback=QLabel();self.feedback.setWordWrap(True);eb.addWidget(self.feedback);lay.addWidget(self.editor_widget);self.editor_widget.hide();lay.addStretch()
-        self.dock=app_dock=self.app.add_panel(t("Perfis"),self.panel,name="profiles");app_dock.hide()
+        self.dock=getattr(self.app.window,"_arquitetura_parametrica_master_dock",None)
+        if self.dock is None:
+            self.dock=self.app.add_panel(t("Perfis"),self.panel,name="profiles");self.dock.hide()
 
     def _make_action(self):
         self.action=QAction(profile_icon(),t("Perfil Complexo"),self.app.window);self.action.setToolTip(t("Criar e editar perfis 2D reutilizáveis."));self.action.triggered.connect(self.show_library)
@@ -301,23 +297,37 @@ class ComplexProfileController(QObject):
 
     def refresh_library(self):
         if self.is_profile_workspace():return
-        profiles=load_profiles();selected=self.selected_id();self.list.clear()
-        for p in profiles:
-            b=p.get("bounds",{});w=float(b.get("width",0));h=float(b.get("height",0))
-            label=f"{p['name']}   ·   {w:.3f} × {h:.3f} m"
-            from PySide6.QtWidgets import QListWidgetItem
-            item=QListWidgetItem(label);item.setData(Qt.UserRole,p["id"]);self.list.addItem(item)
-            if p["id"]==selected:self.list.setCurrentItem(item)
-        self.library_widget.show();self.editor_widget.hide();self.heading.setText(t("Perfis Complexos"))
-        enabled=self.list.currentItem() is not None;self.edit_btn.setEnabled(enabled);self.dup_btn.setEnabled(enabled);self.del_btn.setEnabled(enabled)
+        profiles=load_profiles();selected=self.selected_id();self.list.clear();folders={}
+        def folder_item(path):
+            parent=None;key=""
+            for part in [x.strip() for x in str(path or "Meus Perfis").split("/") if x.strip()]:
+                key=(key+" / "+part).strip(" /")
+                if key not in folders:
+                    item=QTreeWidgetItem([part]);item.setData(0,Qt.UserRole,None)
+                    font=item.font(0);font.setBold(True);item.setFont(0,font)
+                    (parent.addChild(item) if parent is not None else self.list.addTopLevelItem(item));folders[key]=item
+                parent=folders[key]
+            return parent
+        selected_item=None
+        for p in sorted(profiles,key=lambda x:(str(x.get("folder") or "").casefold(),str(x.get("name") or "").casefold())):
+            b=p.get("bounds",{});w=float(b.get("width",0));h=float(b.get("height",0));parent=folder_item(p.get("folder"))
+            suffix="  · catálogo" if p.get("builtin") else ""
+            label=f"{p['name']}   ·   {w:.3f} × {h:.3f} m{suffix}"
+            item=QTreeWidgetItem([label]);item.setData(0,Qt.UserRole,p["id"]);item.setToolTip(0,(p.get("source") or "Perfil pessoal")+(f" · {p.get('catalog')}" if p.get("catalog") else ""))
+            if parent is not None:parent.addChild(item)
+            else:self.list.addTopLevelItem(item)
+            if p["id"]==selected:selected_item=item
+        self.list.expandToDepth(1)
+        if selected_item is not None:self.list.setCurrentItem(selected_item);self.list.scrollToItem(selected_item)
+        self.library_widget.show();self.editor_widget.hide();self.heading.setText(t("Perfis Complexos"));self._selection_state()
         try:self.list.currentItemChanged.disconnect(self._selection_state)
         except Exception:pass
         self.list.currentItemChanged.connect(self._selection_state)
     def _selection_state(self,*_):
-        on=self.list.currentItem() is not None;self.edit_btn.setEnabled(on);self.dup_btn.setEnabled(on);self.del_btn.setEnabled(on)
+        p=self.selected_profile();on=p is not None;self.edit_btn.setEnabled(on);self.dup_btn.setEnabled(on);self.del_btn.setEnabled(on and not p.get("readonly",False));self.edit_btn.setText(t("Personalizar") if on and p.get("readonly",False) else t("Editar"))
     def selected_id(self):
         item=self.list.currentItem() if hasattr(self,"list") else None
-        return item.data(Qt.UserRole) if item is not None else None
+        return item.data(0,Qt.UserRole) if item is not None else None
     def selected_profile(self):
         pid=self.selected_id();return next((p for p in load_profiles() if p.get("id")==pid),None)
 
@@ -331,13 +341,17 @@ class ComplexProfileController(QObject):
     def new_profile(self): self._enter_profile(None)
     def edit_selected(self):
         p=self.selected_profile()
-        if p is not None:self._enter_profile(p)
+        if p is None:return
+        if p.get("readonly",False):
+            p=duplicate_profile(p["id"]);self.refresh_library()
+            if p is None:return
+        self._enter_profile(p)
     def duplicate_selected(self):
         pid=self.selected_id()
         if pid and duplicate_profile(pid):self.refresh_library();self._notify_consumers()
     def delete_selected(self):
         p=self.selected_profile()
-        if p is None:return
+        if p is None or p.get("readonly",False):return
         ans=QMessageBox.question(self.app.window,t("Excluir perfil"),t(f"Excluir ‘{p['name']}’?"),QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
         if ans==QMessageBox.Yes:delete_profile(p["id"]);self.refresh_library();self._notify_consumers()
 
@@ -352,13 +366,15 @@ class ComplexProfileController(QObject):
     def is_profile_workspace(self): return self._ws is not None and self.app.workspace() is self._ws
     def sync_workspace_ui(self):
         if not self.is_profile_workspace():return
-        ws=self._ws;self.library_widget.hide();self.editor_widget.show();self.heading.setText(t("Editor de Perfil Complexo"));self.name.setText(ws.profile_name)
+        ws=self._ws;self.library_widget.hide();self.editor_widget.show();self.heading.setText(t("Editor de Perfil Complexo"));self.name.setText(ws.profile_name);self.folder.setText(ws.profile_folder)
         for f,v in ((self.anchor_x,ws.anchor[0]),(self.anchor_y,ws.anchor[1])):
             b=f.blockSignals(True);f.setValue(float(v));f.blockSignals(b)
         self.feedback.setText(t("Plano ortográfico 2D ativo. A origem marcada será o ponto de inserção no futuro Perfil por Caminho."))
 
     def name_changed(self,text):
         if self.is_profile_workspace():self._ws.profile_name=str(text)
+    def folder_changed(self,text):
+        if self.is_profile_workspace():self._ws.profile_folder=" / ".join(x.strip() for x in str(text).replace("\\","/").split("/") if x.strip()) or "Meus Perfis"
 
     def anchor_numeric_changed(self,*_):
         if not self.is_profile_workspace():return
@@ -375,7 +391,8 @@ class ComplexProfileController(QObject):
         try:
             loops,bounds=_profile_loops(ws.scene,ws.anchor)
             profile={"id":ws.profile_id or uuid.uuid4().hex,"name":name,
-                     "schema_version":1,"loops":loops,"bounds":bounds}
+                     "schema_version":1,"loops":loops,"bounds":bounds,
+                     "folder":ws.profile_folder or "Meus Perfis"}
             saved=upsert_profile(profile);ws.profile_id=saved["id"];ws.profile_name=saved["name"];ws.mark_clean();self._notify_consumers()
             self.feedback.setText(t("Perfil salvo na biblioteca de favoritos."))
             if leave:

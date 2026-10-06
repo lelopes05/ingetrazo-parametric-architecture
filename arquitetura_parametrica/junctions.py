@@ -21,6 +21,7 @@ import math
 
 from PySide6.QtGui import QVector3D
 
+from .layer_intersections import can_intersect as layer_can_intersect
 from .model import (DERIVED_KEY, KEY, MIN_DIM, WallError, _hide_joint_seam_edges,
                     arc_center_world, build_body, build_children, footprint, local_from_world, path_world,
                     read_wall, record, wall_caps, wall_offsets, wall_path, wall_path_kind, wall_record, wall_has_custom_profile)
@@ -36,7 +37,33 @@ MITER_FACTOR = 20.0
 MITER_MIN = 0.50             # metres; generous for ordinary architectural corners
 CONTACT_EXTEND_FACTOR = 10.0
 CONTACT_EXTEND_MIN = 0.50
-DERIVED_REV = 4             # curved endpoint/T junctions + deterministic T-mouth display
+DERIVED_REV = 5             # layer-intersection groups + curved junction cleanup
+
+
+def _interaction_subclusters(cluster):
+    """Partition endpoint records by the current layer intersection group."""
+    buckets=[]
+    for endpoint in cluster:
+        group=endpoint.get("group")
+        placed=False
+        for bucket in buckets:
+            if bucket and layer_can_intersect(group,bucket[0].get("group")):
+                bucket.append(endpoint);placed=True;break
+        if not placed:buckets.append([endpoint])
+    return buckets
+
+
+def _interaction_partitions(info):
+    """Partition a group->data mapping into mutually interacting sets."""
+    buckets=[]
+    for group,data in info.items():
+        placed=False
+        for bucket in buckets:
+            first=next(iter(bucket),None)
+            if first is not None and layer_can_intersect(group,first):
+                bucket[group]=data;placed=True;break
+        if not placed:buckets.append({group:data})
+    return buckets
 
 
 def _cross2(a, b):
@@ -947,30 +974,31 @@ def junction_snap_aliases(scene, base=None):
             continue
 
     aliases = []
-    for cluster in _clusters(endpoints):
-        if len(cluster) < 2:
-            continue
-        kinds = [wall_path_kind(e["group"]) for e in cluster]
-        if not all(k in ("line", "arc") for k in kinds):
-            continue
-        caps = _node_caps(cluster)
-        if caps is None:
-            continue
-        node = QVector3D(0, 0, 0)
-        for endpoint in cluster:
-            node += endpoint["vertex"]
-        node /= float(len(cluster))
+    for raw_cluster in _clusters(endpoints):
+        for cluster in _interaction_subclusters(raw_cluster):
+            if len(cluster) < 2:
+                continue
+            kinds = [wall_path_kind(e["group"]) for e in cluster]
+            if not all(k in ("line", "arc") for k in kinds):
+                continue
+            caps = _node_caps(cluster)
+            if caps is None:
+                continue
+            node = QVector3D(0, 0, 0)
+            for endpoint in cluster:
+                node += endpoint["vertex"]
+            node /= float(len(cluster))
 
-        for group, endpoint_caps in caps.items():
-            for pair in endpoint_caps.values():
-                for local in pair:
-                    display = group.xform.map(QVector3D(local))
-                    if (display - node).length() <= JOIN_TOL:
-                        continue
-                    if not any((display - old_display).length() <= JOIN_TOL
-                               and (node - old_node).length() <= JOIN_TOL
-                               for old_display, old_node in aliases):
-                        aliases.append((QVector3D(display), QVector3D(node)))
+            for group, endpoint_caps in caps.items():
+                for pair in endpoint_caps.values():
+                    for local in pair:
+                        display = group.xform.map(QVector3D(local))
+                        if (display - node).length() <= JOIN_TOL:
+                            continue
+                        if not any((display - old_display).length() <= JOIN_TOL
+                                   and (node - old_node).length() <= JOIN_TOL
+                                   for old_display, old_node in aliases):
+                            aliases.append((QVector3D(display), QVector3D(node)))
     return aliases
 
 
@@ -1024,20 +1052,21 @@ def sync_wall_junctions(scene):
 
     # 1) Exact reference-endpoint nodes.  Tangents make the same 2-D miter
     # solver valid for lines and true circular arcs.
-    for cluster in _clusters(endpoints):
-        if len(cluster) < 2:
-            continue
-        kinds = [wall_path_kind(e["group"]) for e in cluster]
-        if not all(k in ("line", "arc") for k in kinds):
-            continue
-        caps = _node_caps(cluster)
-        if caps is None:
-            continue
-        for endpoint in cluster:
-            occupied.add((endpoint["group"], endpoint["which"]))
-        for group, endpoint_caps in caps.items():
-            if group in desired:
-                desired[group].update(endpoint_caps)
+    for raw_cluster in _clusters(endpoints):
+        for cluster in _interaction_subclusters(raw_cluster):
+            if len(cluster) < 2:
+                continue
+            kinds = [wall_path_kind(e["group"]) for e in cluster]
+            if not all(k in ("line", "arc") for k in kinds):
+                continue
+            caps = _node_caps(cluster)
+            if caps is None:
+                continue
+            for endpoint in cluster:
+                occupied.add((endpoint["group"], endpoint["which"]))
+            for group, endpoint_caps in caps.items():
+                if group in desired:
+                    desired[group].update(endpoint_caps)
 
     # 2a) Preserve the proven straight-wall physical-contact resolver.
     straight_endpoints = {g: endpoints_by_group[g] for g in straight_info}
@@ -1051,6 +1080,13 @@ def sync_wall_junctions(scene):
         old = candidates.get(key)
         if old is None or cand.get("distance", 1e99) < old.get("distance", 1e99):
             candidates[key] = cand
+
+    # A candidate from another layer-intersection group is not a junction.
+    for key, cand in list(candidates.items()):
+        branch = key[0]
+        host = cand.get("host")
+        if host is not None and not layer_can_intersect(branch, host):
+            candidates.pop(key, None)
 
     virtual = []
     t_mouths = []
@@ -1069,38 +1105,43 @@ def sync_wall_junctions(scene):
             endpoint["contact_host"] = candidate.get("host")
         virtual.append(endpoint)
 
-    for cluster in _cluster_virtual_endpoints(virtual):
-        if len(cluster) == 1:
-            endpoint = cluster[0]
-            desired[endpoint["group"]][endpoint["which"]] = (
-                endpoint.get("contact_cap") or _cap_at(endpoint, endpoint["vertex"]))
-            if endpoint.get("contact_host") is not None:
-                t_mouths.append({"branch": endpoint["group"],
-                                 "host": endpoint["contact_host"]})
-            continue
-        if len({id(e["group"]) for e in cluster}) != len(cluster):
-            for endpoint in cluster:
+    for raw_cluster in _cluster_virtual_endpoints(virtual):
+        for cluster in _interaction_subclusters(raw_cluster):
+            if len(cluster) == 1:
+                endpoint = cluster[0]
                 desired[endpoint["group"]][endpoint["which"]] = (
                     endpoint.get("contact_cap") or _cap_at(endpoint, endpoint["vertex"]))
-            continue
-        caps = _node_caps(cluster)
-        if caps is None:
-            for endpoint in cluster:
-                desired[endpoint["group"]][endpoint["which"]] = (
-                    endpoint.get("contact_cap") or _cap_at(endpoint, endpoint["vertex"]))
-            continue
-        for group, endpoint_caps in caps.items():
-            desired[group].update(endpoint_caps)
+                if endpoint.get("contact_host") is not None and layer_can_intersect(endpoint["group"], endpoint["contact_host"]):
+                    t_mouths.append({"branch": endpoint["group"],
+                                     "host": endpoint["contact_host"]})
+                continue
+            if len({id(e["group"]) for e in cluster}) != len(cluster):
+                for endpoint in cluster:
+                    desired[endpoint["group"]][endpoint["which"]] = (
+                        endpoint.get("contact_cap") or _cap_at(endpoint, endpoint["vertex"]))
+                continue
+            caps = _node_caps(cluster)
+            if caps is None:
+                for endpoint in cluster:
+                    desired[endpoint["group"]][endpoint["which"]] = (
+                        endpoint.get("contact_cap") or _cap_at(endpoint, endpoint["vertex"]))
+                continue
+            for group, endpoint_caps in caps.items():
+                desired[group].update(endpoint_caps)
 
     final_polys = {
         group: _final_world_poly(group, values, path, desired.get(group, {}))
         for group, (values, path, _world, _poly) in all_info.items()
     }
-    # Keep the long-tested technical crease logic on straight walls only.
+    # Keep technical crease/overlap work inside each intersection group.
     straight_final = {g: final_polys[g] for g in straight_info}
-    creases = _derive_crease_edges(straight_info,
-                                   {g: desired.get(g, {}) for g in straight_info},
-                                   straight_final)
+    creases = {}
+    for part in _interaction_partitions(straight_info):
+        if not part:
+            continue
+        part_final={g:straight_final[g] for g in part}
+        creases.update(_derive_crease_edges(
+            part, {g:desired.get(g,{}) for g in part}, part_final))
     edge_masks = _derive_t_mouth_masks_general(t_mouths, all_info, final_polys)
 
     changed = 0
@@ -1138,7 +1179,9 @@ def sync_wall_junctions(scene):
     # the plan caps and should not have edges hidden by a uniform-height test.
     maskable_straight = {g:info for g,info in straight_info.items()
                          if not wall_has_custom_profile(info[0])}
-    maskable_final = {g:straight_final[g] for g in maskable_straight}
-    _hide_overlap_interior_edges(maskable_straight, maskable_final)
+    for part in _interaction_partitions(maskable_straight):
+        part_final={g:straight_final[g] for g in part}
+        _hide_overlap_interior_edges(part, part_final)
     _apply_t_mouth_masks(all_info, edge_masks)
     return changed
+

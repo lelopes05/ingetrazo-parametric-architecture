@@ -453,12 +453,14 @@ class MoveWallVertexTool(AxisMagnet, Tool):
         self.arc_center = None
         self.arc_radius = None
         self.arc_sign = 1.0
+        self.move_reference = None
 
     def prepare(self, group, anchor):
         self.group = group
         self.scene = self.controller.app.scene
         self.anchor = QVector3D(anchor)
-        self.start_point = QVector3D(anchor)
+        self.start_point = None if self.mode == "free" else QVector3D(anchor)
+        self.move_reference = None
         self.values = None
         self.kind = None
         self.endpoint = None
@@ -477,6 +479,7 @@ class MoveWallVertexTool(AxisMagnet, Tool):
         self.arc_center = None
         self.arc_radius = None
         self.arc_sign = 1.0
+        self.move_reference = None
 
     def _valid(self, viewport):
         if (self.group is None or self.scene is not viewport.scene
@@ -517,8 +520,8 @@ class MoveWallVertexTool(AxisMagnet, Tool):
                     self.arc_sign = 1.0 if cross >= 0.0 else -1.0
             if self.mode == "free":
                 self.controller.message(
-                    "Mova o vértice livremente no plano horizontal e clique. "
-                    "Em arcos, a proporção da curvatura é preservada.")
+                    "Clique no ponto de referência do movimento do vértice. "
+                    "Depois escolha o destino; em arcos, a proporção da curvatura é preservada.")
             elif self.kind == "arc":
                 self.controller.message(
                     "Mova o vértice ao longo do mesmo arco e clique para prolongar ou encurtar a parede.")
@@ -548,7 +551,13 @@ class MoveWallVertexTool(AxisMagnet, Tool):
         if self.refs is None or self.endpoint is None:
             return p
         if self.mode == "free":
-            return p
+            current = self.refs[self.endpoint]
+            if self.move_reference is None:
+                return QVector3D(current)
+            ref = self._flat(self.move_reference)
+            return QVector3D(current.x() + p.x() - ref.x(),
+                             current.y() + p.y() - ref.y(),
+                             current.z())
         if self.kind == "line":
             fixed = self.refs[1 - self.endpoint]
             current = self.refs[self.endpoint]
@@ -626,6 +635,8 @@ class MoveWallVertexTool(AxisMagnet, Tool):
     def on_hover(self, ctx):
         if self.values is None:
             return
+        if self.mode == "free" and self.move_reference is None:
+            return
         try:
             self._valid(ctx.viewport)
             self.hover = self._candidate(ctx.world)
@@ -636,6 +647,12 @@ class MoveWallVertexTool(AxisMagnet, Tool):
     def on_click(self, ctx):
         try:
             self._valid(ctx.viewport)
+            if self.mode == "free" and self.move_reference is None:
+                self.move_reference = self._flat(ctx.world)
+                self.start_point = QVector3D(self.move_reference)
+                self.controller.message("Agora clique no ponto de destino do vértice.")
+                ctx.viewport.update()
+                return
             self.hover = self._candidate(ctx.world)
             spec = self._spec(self.hover)
             if spec is None:
@@ -710,7 +727,10 @@ class ConstrainedMoveWallTool(AxisMagnet, Tool):
         self.group = group
         self.scene = self.controller.app.scene
         self.anchor = QVector3D(anchor)
-        self.start_point = QVector3D(anchor)
+        # Move is a two-click CAD gesture: first click picks the reference
+        # point, second click picks the destination.  The selected wall
+        # anchor only defines the editing plane; it is not the move origin.
+        self.start_point = None
         self.cursor_origin = None
         self.delta = QVector3D(0, 0, 0)
 
@@ -738,9 +758,9 @@ class ConstrainedMoveWallTool(AxisMagnet, Tool):
             viewport.begin_groups_preview([self.group])
             self._previewing = True
             if self.mode == "xy":
-                self.controller.message("Mova a parede no plano horizontal e clique para confirmar.")
+                self.controller.message("Clique no ponto de referência para mover a parede no plano horizontal.")
             else:
-                self.controller.message("Mova a parede apenas na vertical e clique para confirmar.")
+                self.controller.message("Clique no ponto de referência para mover a parede na vertical.")
         except WallError as exc:
             self.controller.message(str(exc), error=True)
             QTimer.singleShot(0, lambda: activate_select(self.controller.app))
@@ -770,8 +790,7 @@ class ConstrainedMoveWallTool(AxisMagnet, Tool):
         try:
             self._valid(ctx.viewport)
             if self.cursor_origin is None:
-                self.cursor_origin = QVector3D(ctx.world)
-                self.start_point = QVector3D(ctx.world)
+                return
             self.delta = self._delta_from(ctx.world)
             if self._previewing:
                 ctx.viewport.set_groups_preview_offset(self.delta)
@@ -784,6 +803,10 @@ class ConstrainedMoveWallTool(AxisMagnet, Tool):
             self._valid(ctx.viewport)
             if self.cursor_origin is None:
                 self.cursor_origin = QVector3D(ctx.world)
+                self.start_point = QVector3D(ctx.world)
+                self.controller.message("Agora clique no ponto de destino da parede.")
+                ctx.viewport.update()
+                return
             self.delta = self._delta_from(ctx.world)
             if self._previewing:
                 ctx.viewport.end_groups_preview()
@@ -936,7 +959,7 @@ class MoveWallStationZTool(Tool):
     uses_snap=True;wireframe_color=(0.12,0.55,0.95,1.0);vcb_label="Cota base"
 
     def __init__(self,controller):self.controller=controller;self.reset()
-    def prepare(self,group,anchor):self.group=group;self.scene=self.controller.app.scene;self.anchor=QVector3D(anchor);self.start_point=QVector3D(anchor)
+    def prepare(self,group,anchor):self.group=group;self.scene=self.controller.app.scene;self.anchor=QVector3D(anchor);self.start_point=None
     def reset(self):self.group=self.scene=self.anchor=self.start_point=None;self.values=None;self.endpoint=None;self.original_base=None;self.original_top=None;self.new_base=None;self.cursor_origin_z=None
     def _valid(self,viewport):
         if self.group is None or self.scene is not viewport.scene or self.group not in viewport.scene.groups:raise WallError("A parede não está mais disponível. Selecione-a novamente.")
@@ -946,18 +969,20 @@ class MoveWallStationZTool(Tool):
         try:
             self._valid(viewport);self.values=read_wall(self.group);refs=base_reference_vertices_world(self.group)
             self.endpoint=0 if (self.anchor-refs[0]).length()<=(self.anchor-refs[1]).length() else 1
-            self.original_base=float(self.values["base_profile"][self.endpoint]);self.original_top=float(self.values["top_profile"][self.endpoint]);self.new_base=self.original_base;self.cursor_origin_z=self.anchor.z()
-            self.controller.message("Mova esta extremidade da base em Z. O topo correspondente acompanha, preservando a altura local; também pode digitar a cota absoluta.")
+            self.original_base=float(self.values["base_profile"][self.endpoint]);self.original_top=float(self.values["top_profile"][self.endpoint]);self.new_base=self.original_base;self.cursor_origin_z=None
+            self.controller.message("Clique no ponto de referência do movimento vertical. Depois clique no destino; também pode digitar a cota absoluta.")
         except WallError as exc:self.controller.message(str(exc),error=True);QTimer.singleShot(0,lambda:activate_select(self.controller.app))
         viewport.update()
     def on_deactivate(self,viewport):self.reset();viewport.update()
     def drag_plane(self,viewport):return _vertical_view_plane(viewport,self.anchor) if self.anchor is not None else None
-    def _candidate_world_z(self,ctx):
+    def _raw_world_z(self,ctx):
         if ctx.snap is not None and getattr(ctx.snap,"kind",None) in {"endpoint","midpoint","arc_midpoint","center","origin","component_origin","intersection","close","reference"}:return float(ctx.snap.point.z())
-        if self.cursor_origin_z is None:self.cursor_origin_z=ctx.world.z()
-        return float(self.anchor.z())+(ctx.world.z()-self.cursor_origin_z)
+        return float(ctx.world.z())
+    def _candidate_world_z(self,ctx):
+        if self.cursor_origin_z is None:return float(self.anchor.z())
+        return float(self.anchor.z())+(self._raw_world_z(ctx)-self.cursor_origin_z)
     def on_hover(self,ctx):
-        if self.values is None:return
+        if self.values is None or self.cursor_origin_z is None:return
         self.new_base=self._candidate_world_z(ctx)-float(self.values["base"]);ctx.viewport.update()
     def _commit(self,viewport,world_z):
         self._valid(viewport);values=read_wall(self.group);ep=self.endpoint
@@ -970,7 +995,11 @@ class MoveWallStationZTool(Tool):
         if viewport.history.last_error:raise WallError(viewport.history.last_error)
         viewport.notify_scene_changed();self.controller.message("Cota da extremidade da base atualizada.");self.reset();activate_select(self.controller.app)
     def on_click(self,ctx):
-        try:self._commit(ctx.viewport,self._candidate_world_z(ctx))
+        try:
+            if self.cursor_origin_z is None:
+                self.cursor_origin_z=self._raw_world_z(ctx);self.start_point=QVector3D(ctx.world)
+                self.controller.message("Agora clique no ponto de destino da extremidade da base.");ctx.viewport.update();return
+            self._commit(ctx.viewport,self._candidate_world_z(ctx))
         except WallError as exc:self.controller.message(str(exc),error=True)
         ctx.viewport.update()
     def on_value(self,viewport,value):
@@ -1052,3 +1081,4 @@ class LeanWallTopTool(AxisMagnet, Tool):
         return (f"{angle:.2f}°".replace(".",","),self.hover)
     def on_cancel(self,viewport):self.reset();activate_select(self.controller.app);self.controller.message("Inclinação cancelada.");viewport.update()
     def rubber_band_lines(self):return [] if self.base_ref is None or self.hover is None else [(self.base_ref,self.hover)]
+

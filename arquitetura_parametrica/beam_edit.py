@@ -37,11 +37,13 @@ class MoveBeamEndpointTool(AxisMagnet, Tool):
         self.values = None
         self.hover = None
         self.start_point = None
+        self.move_reference = None
 
     def prepare(self, group, anchor):
         self.group = group
         self.anchor = QVector3D(anchor)
-        self.start_point = QVector3D(anchor)
+        self.start_point = QVector3D(anchor) if self.mode == "continue" else None
+        self.move_reference = None
 
     def on_activate(self, viewport):
         self.controller.hide_endpoint_palette()
@@ -54,9 +56,9 @@ class MoveBeamEndpointTool(AxisMagnet, Tool):
             self.endpoint = 0 if (self.anchor-self.refs[0]).length() <= (self.anchor-self.refs[1]).length() else 1
             self.hover = QVector3D(self.refs[self.endpoint])
             if self.mode == "vertical":
-                self.controller.message("Mova este extremo para cima/baixo e clique para definir a inclinação da viga.")
+                self.controller.message("Clique no ponto de referência do movimento vertical deste extremo da viga.")
             elif self.mode == "free":
-                self.controller.message("Mova o extremo e clique.")
+                self.controller.message("Clique no ponto de referência para mover este extremo da viga.")
             else:
                 self.controller.message("Prolongue/encurte a viga no mesmo eixo e clique.")
         except BeamError as exc:
@@ -82,10 +84,14 @@ class MoveBeamEndpointTool(AxisMagnet, Tool):
         if not self.refs or self.endpoint is None: return QVector3D(p)
         cur = self.refs[self.endpoint]
         if self.mode == "vertical":
-            return QVector3D(cur.x(), cur.y(), p.z())
+            if self.move_reference is None:return QVector3D(cur)
+            return QVector3D(cur.x(), cur.y(), cur.z() + p.z() - self.move_reference.z())
         z = cur.z()
+        if self.mode == "free":
+            if self.move_reference is None:return QVector3D(cur)
+            return QVector3D(cur.x() + p.x() - self.move_reference.x(),
+                             cur.y() + p.y() - self.move_reference.y(), z)
         q = QVector3D(p.x(), p.y(), z)
-        if self.mode == "free": return q
         fixed = self.refs[1-self.endpoint]
         cur = self.refs[self.endpoint]
         d = cur-fixed; d.setZ(0)
@@ -106,10 +112,14 @@ class MoveBeamEndpointTool(AxisMagnet, Tool):
         return a,b
 
     def on_hover(self, ctx):
+        if self.mode in ("free","vertical") and self.move_reference is None:return
         self.hover = self._candidate(ctx.world); ctx.viewport.update()
 
     def on_click(self, ctx):
         try:
+            if self.mode in ("free","vertical") and self.move_reference is None:
+                self.move_reference=QVector3D(ctx.world);self.start_point=QVector3D(ctx.world)
+                self.controller.message("Agora clique no ponto de destino do extremo da viga.");ctx.viewport.update();return
             ends=self._ends(ctx.world)
             if ends is None: raise BeamError("O comprimento resultante da viga é pequeno demais.")
             ctx.viewport.history.execute(ReshapeBeam(ctx.viewport.scene,self.group,*ends))

@@ -24,6 +24,7 @@ from .host import (ARC_TOOL_KEY, CURVED_WALL_TOOL_KEY, HEIGHT_TOOL_KEY, MOVE_XY_
                    activate_select, activate_vertex_insert, activate_wall, register_tool)
 from .levels import available_levels, level_by_name, sync_bound_wall_tops
 from .junctions import sync_wall_junctions
+from .layer_intersections import intersection_group as wall_intersection_group
 from .palette import RadialPalette
 from .layer_ui import LayerEditor
 from .materials import material_names
@@ -38,46 +39,71 @@ from .path_edit import (ArcWallTool, ChangeWallHeightTool, ConstrainedMoveWallTo
                         InsertVertexTool, MoveWallVertexTool, MoveWallStationZTool, LeanWallTopTool)
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
 from .i18n import t, ui_locale
+from .icons import icon as pa_icon, set_symbol_icon
 
 
 log = logging.getLogger("ingetrazo.plugins.arquitetura_parametrica")
 
 
 def wall_icon():
-    pixmap = QPixmap(32, 32)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-    painter.setPen(QPen(QColor("#42658d"), 2))
-    painter.setBrush(QColor("#a7bfd9"))
-    painter.drawRect(5, 7, 22, 18)
-    painter.drawLine(5, 16, 27, 16)
-    painter.drawLine(15, 7, 15, 16)
-    painter.drawLine(11, 16, 11, 25)
-    painter.drawLine(22, 16, 22, 25)
-    painter.end()
-    return QIcon(pixmap)
+    return pa_icon("wall")
 
 
 def composite_wall_icon():
-    pixmap=QPixmap(32,32);pixmap.fill(Qt.transparent);p=QPainter(pixmap);p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(QPen(QColor("#42658d"),1.5));
-    for i,c in enumerate(("#c9d9e8","#8faeca","#d9c7a5")):
-        p.setBrush(QColor(c));p.drawRect(5,7+i*6,22,6)
-    p.end();return QIcon(pixmap)
+    return pa_icon("wall_composite")
 
 
 def curved_wall_icon():
-    pixmap = QPixmap(32, 32)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-    pen = QPen(QColor("#42658d"), 3)
-    painter.setPen(pen)
-    painter.drawArc(QRectF(5, 5, 22, 22), 25 * 16, 130 * 16)
-    painter.drawArc(QRectF(8, 8, 16, 16), 25 * 16, 130 * 16)
-    painter.end()
-    return QIcon(pixmap)
+    return pa_icon("wall_curve")
+
+
+
+
+def _freeze_junction_value(value):
+    """Hashable, deterministic form of wall inputs relevant to junctions."""
+    if isinstance(value, dict):
+        return tuple(sorted((str(k), _freeze_junction_value(v)) for k, v in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_junction_value(v) for v in value)
+    if isinstance(value, float):
+        return round(value, 9)
+    return value
+
+
+def _wall_transform_signature(group):
+    xf = getattr(group, "xform", None)
+    if xf is None:
+        return None
+    try:
+        pts = [xf.map(QVector3D(0, 0, 0)), xf.map(QVector3D(1, 0, 0)),
+               xf.map(QVector3D(0, 1, 0)), xf.map(QVector3D(0, 0, 1))]
+        return tuple(round(float(v), 9) for p in pts for v in (p.x(), p.y(), p.z()))
+    except Exception:
+        return repr(xf)
+
+
+def wall_junction_input_key(scene):
+    """Return a key that changes only when a wall can affect a junction.
+
+    The previous 0.11 build keyed the resolver to ``scene.version``. That made
+    an expensive curved-wall junction pass run after *any* scene edit (slab,
+    column, beam, selection-derived changes, etc.). Once an arc existed this
+    was visible as intermittent stalls. Derived ``caps`` are intentionally
+    excluded so the resolver's own cleanup does not invalidate its cache.
+    """
+    items = []
+    for group in list(getattr(scene, "groups", ())):
+        rec = wall_record(group)
+        if rec is None:
+            continue
+        raw = {k: v for k, v in rec.items() if k != "caps"}
+        try:
+            ig = int(wall_intersection_group(group))
+        except Exception:
+            ig = 1
+        items.append((id(group), _freeze_junction_value(raw),
+                      _wall_transform_signature(group), ig))
+    return tuple(items)
 
 
 def selected_walls(scene):
@@ -128,12 +154,12 @@ class WallController(QObject):
         app.add_overlay(self.draw_reference_overlay)
         app.add_snap_provider(self._snap_provider)
         app.viewport.installEventFilter(self)
-        # Selection changes increment the native view version. The viewport
-        # emits sceneVersionChanged on upload/notify; tool changes emit
-        # measurementChanged. Deferred refresh avoids modifying Qt layouts
-        # from inside paintGL and coalesces bursts of notifications.
+        # Selection/model changes emit sceneVersionChanged. Tool activation and
+        # deactivation schedule their own refreshes; do not bind the heavy panel
+        # refresh to measurementChanged because that signal also fires during
+        # live cursor measurement and would rebuild all architecture panels on
+        # every mouse move.
         app.viewport.sceneVersionChanged.connect(self.schedule_refresh)
-        app.viewport.measurementChanged.connect(self.schedule_refresh)
         self.schedule_refresh()
 
     def _snap_provider(self, viewport, snap, px, py):
@@ -216,14 +242,14 @@ class WallController(QObject):
             f=QDoubleSpinBox();f.setLocale(ui_locale());f.setDecimals(4);f.setRange(0.0,MAX_DIM);f.setSingleStep(step);f.setSuffix(" m");f.setKeyboardTracking(False);f.valueChanged.connect(self.opening_changed);self.opening_fields[key]=f;oform.addRow(label,f)
         self.opening_fields["width"].setToolTip(t("Largura livre mínima da abertura. Em paredes curvas, as faces interna e externa podem ter larguras projetadas diferentes; o valor informado é garantido no menor vão, para representar a passagem realmente disponível."))
         self.opening_fields["position"].setToolTip(t("Distância da abertura medida ao longo da linha de referência da parede."))
-        self.delete_opening_btn=QToolButton(self.opening_widget);self.delete_opening_btn.setText("⊘");self.delete_opening_btn.setToolTip(t("Excluir esta abertura da parede."));self.delete_opening_btn.clicked.connect(self.delete_wall_opening);oform.addRow(t("Abertura hospedada"),self.delete_opening_btn)
+        self.delete_opening_btn=QToolButton(self.opening_widget);set_symbol_icon(self.delete_opening_btn,"⊘",20);self.delete_opening_btn.setToolTip(t("Excluir esta abertura da parede."));self.delete_opening_btn.clicked.connect(self.delete_wall_opening);oform.addRow(t("Abertura hospedada"),self.delete_opening_btn)
         layout.addWidget(self.opening_widget);self.opening_widget.hide()
 
         self.pair_widget = QWidget()
         pair_row = QHBoxLayout(self.pair_widget)
         pair_row.setContentsMargins(0, 0, 0, 0)
         self.meet_btn = QToolButton(self.pair_widget)
-        self.meet_btn.setText("⋈")
+        set_symbol_icon(self.meet_btn,"⋈",22)
         self.meet_btn.setToolTip(
             "Encontrar as duas paredes: prolonga ou apara as pontas mais próximas "
             "até a interseção das linhas de referência.")
@@ -247,8 +273,10 @@ class WallController(QObject):
         self.version_label.setStyleSheet("color: #777; font-size: 9pt;")
         self.version_label.setToolTip(t("Versão instalada deste plugin."))
         layout.addWidget(self.version_label)
-        self.dock = self.app.add_panel(t("Arquitetura"), self.panel)
-        self.dock.hide()
+        self.dock = getattr(self.app.window, "_arquitetura_parametrica_master_dock", None)
+        if self.dock is None:
+            self.dock = self.app.add_panel(t("Arquitetura"), self.panel)
+            self.dock.hide()
 
     def _make_actions(self):
         self.action = QAction(wall_icon(), t("Parede paramétrica"), self.app.window)
@@ -311,20 +339,33 @@ class WallController(QObject):
             self._toolbar_grip.raise_()
 
     def fit_toolbar(self):
-        """Keep late-added tools visible; floating toolbar remains user-resizable."""
+        """Fit only a FLOATING toolbar.
+
+        When docked, QMainWindow owns its geometry. Scheduling adjustSize()
+        several times while the application is restoring its saved/maximized
+        window caused Windows to visibly re-layout the top-level window during
+        startup.
+        """
         if not hasattr(self, "toolbar"):
             return
+        if not self.toolbar.isFloating():
+            self._position_toolbar_grip()
+            return
+
         def _fit():
             try:
+                if not self.toolbar.isFloating():
+                    self._position_toolbar_grip()
+                    return
                 self.toolbar.adjustSize()
-                if self.toolbar.isFloating():
-                    hint=self.toolbar.sizeHint()
-                    self.toolbar.resize(max(self.toolbar.width(),hint.width()),
-                                        max(self.toolbar.height(),hint.height()))
+                hint = self.toolbar.sizeHint()
+                self.toolbar.resize(max(self.toolbar.width(), hint.width()),
+                                    max(self.toolbar.height(), hint.height()))
                 self._position_toolbar_grip()
             except RuntimeError:
                 pass
-        QTimer.singleShot(0,_fit)
+
+        QTimer.singleShot(0, _fit)
 
     def _make_path_palette(self):
         self.path_palette = RadialPalette(self.app.window, popup=False, role="edit")
@@ -333,7 +374,7 @@ class WallController(QObject):
 
         def button(symbol, tooltip, slot):
             b = QToolButton(self.path_palette)
-            b.setText(symbol)
+            set_symbol_icon(b, symbol)
             b.setToolTip(tooltip)
             b.setAutoRaise(True)
             b.setFixedSize(34, 34)
@@ -402,7 +443,7 @@ class WallController(QObject):
 
         def add(symbol, tooltip, mode):
             b = QToolButton(self.straight_mode_palette)
-            b.setText(symbol)
+            set_symbol_icon(b, symbol)
             b.setToolTip(tooltip)
             b.setAutoRaise(True)
             b.setCheckable(True)
@@ -444,7 +485,7 @@ class WallController(QObject):
 
         def add(symbol, tooltip, mode):
             b = QToolButton(self.curve_mode_palette)
-            b.setText(symbol)
+            set_symbol_icon(b, symbol)
             b.setToolTip(tooltip)
             b.setAutoRaise(True)
             b.setCheckable(True)
@@ -974,21 +1015,23 @@ class WallController(QObject):
         # split, live parameter edits, native undo/redo and even the generic
         # Move tool all converge to the same geometry without adding a second
         # history step.
-        junction_key = (id(scene), scene.version)
+        junction_key = (id(scene), wall_junction_input_key(scene))
         if junction_key != self._junction_key:
             changed = 0
             try:
                 changed = sync_wall_junctions(scene)
             except Exception:
                 log.exception("Falha ao atualizar junções paramétricas")
+            # Cache the *input* signature before notifying the host. Derived
+            # caps do not belong to this key, so the follow-up scene signal
+            # does not immediately run the expensive resolver a second time.
+            self._junction_key = junction_key
             if changed:
                 # The resolver changes only derived meshes/endpoint metadata.
                 # Give the host one fresh version so render/pick/section caches
                 # see those new meshes; this is not an extra undoable command.
                 scene.version += 1
-                junction_key = (id(scene), scene.version)
                 vp.notify_scene_changed()
-            self._junction_key = junction_key
 
         walls = selected_walls(scene)
         selection_key = tuple(sorted(id(w) for w in walls))
@@ -1014,7 +1057,8 @@ class WallController(QObject):
         self.form_widget.setVisible(context in ("create", "edit"))
         self.pair_widget.setVisible(context == "pair")
         if context is None:
-            self.dock.hide()
+            if getattr(self.app.window, "_arquitetura_parametrica_suite_panel", None) is None:
+                self.dock.hide()
             self._loaded_key = None
             return
         if context == "pair":
@@ -1143,13 +1187,16 @@ class WallController(QObject):
     def refresh_material_options(self):
         current=self.material.currentData() if hasattr(self,"material") and self.material.count() else self.defaults.get("material_name")
         if not hasattr(self,"material"):return
-        blocked=self.material.blockSignals(True)
-        try:
-            self.material.clear();self.material.addItem(t("Padrão"),None)
-            for name in material_names(self.app.scene):self.material.addItem(name,name)
-            i=self.material.findData(current);self.material.setCurrentIndex(i if i>=0 else 0)
-        finally:self.material.blockSignals(blocked)
-        if hasattr(self,"layer_editor"):self.layer_editor.set_material_names(material_names(self.app.scene))
+        names=material_names(self.app.scene);key=tuple(names)
+        if getattr(self,"_material_options_key",None)!=key:
+            blocked=self.material.blockSignals(True)
+            try:
+                self.material.clear();self.material.addItem(t("Padrão"),None)
+                for name in names:self.material.addItem(name,name)
+                i=self.material.findData(current);self.material.setCurrentIndex(i if i>=0 else 0)
+            finally:self.material.blockSignals(blocked)
+            self._material_options_key=key
+        if hasattr(self,"layer_editor"):self.layer_editor.set_material_names(names)
 
     def _update_top_binding_ui(self):
         linked = self.top_level.currentData() is not None
@@ -1261,7 +1308,18 @@ class WallController(QObject):
             if kind=="composite":self.defaults["thickness"]=sum(float(x["thickness"]) for x in self.defaults["layers"])
         finally:self._loading=False
         self.action.setIcon(composite_wall_icon() if kind=="composite" else wall_icon())
-        self._update_structure_ui();self.start_drawing()
+        self._update_structure_ui()
+        # If the straight-wall tool is already active, changing simple/composite
+        # must not reactivate/toggle the same host tool.  Reactivating an active
+        # tool made the first click merely leave the previous mode; the second
+        # click was then required to start the requested structure.
+        if self.app.viewport.active_tool is self.tool:
+            self._state_key = None
+            self.refresh()
+            self.message("Clique no início da parede. A cota de base define o plano horizontal.")
+            self.app.viewport.setFocus()
+        else:
+            self.start_drawing()
 
     def values(self):
         for field in self.fields.values():

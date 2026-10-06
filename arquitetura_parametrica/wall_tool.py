@@ -246,10 +246,13 @@ class WallTool(AxisMagnet, Tool):
 
     def value_label(self):
         if self.start_point is None or self.hover_point is None:
-            return ("",)
+            return None
         origin = self.second_point if (self.mode == self.MODE_RECT_BASE_WIDTH and self.second_point is not None) else self.start_point
         distance = (self.hover_point - origin).length()
-        return (f"{distance:.4f} m".replace(".", ","),)
+        return (
+            f"{distance:.4f} m".replace(".", ","),
+            QVector3D(self.hover_point),
+        )
 
     def _preview_wall_lines(self, start, end):
         delta = end - start
@@ -580,14 +583,17 @@ class CurvedWallTool(WallTool):
         return out
 
     def value_label(self):
-        if self.first_point is None:
-            return ("",)
+        if self.first_point is None or self.hover_point is None:
+            return None
         if self.second_point is None:
-            return ("Escolha o segundo ponto",)
+            return ("Escolha o segundo ponto", QVector3D(self.hover_point))
         try:
             spec = self._valid_spec(self._current_spec())
         except WallError:
             spec = None
         if spec is None:
-            return ("Definindo arco",)
-        return (f"flecha {spec[2]:.4f} m".replace(".", ","),)
+            return ("Definindo arco", QVector3D(self.hover_point))
+        return (
+            f"flecha {spec[2]:.4f} m".replace(".", ","),
+            QVector3D(self.hover_point),
+        )

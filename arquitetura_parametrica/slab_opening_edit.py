@@ -161,9 +161,9 @@ class StretchOpeningEdgeTool(_OpeningEditBase):
 
 class MoveOpeningVertexTool(_OpeningEditBase):
     name="Mover vértice da abertura";description="Mover ou fundir um vértice da abertura no plano horizontal.";MERGE_TOL=1e-4
-    def __init__(self,controller):super().__init__(controller);self.original=None;self.specs=None;self._merge=False
-    def arm(self,slab,token,anchor):super().arm(slab,token,anchor);_o,_oi,_it,self.original,self.specs=self._data();self._merge=False
-    def reset(self):super().reset();self.original=None;self.specs=None;self._merge=False
+    def __init__(self,controller):super().__init__(controller);self.original=None;self.specs=None;self._merge=False;self.move_reference=None
+    def arm(self,slab,token,anchor):super().arm(slab,token,anchor);_o,_oi,_it,self.original,self.specs=self._data();self._merge=False;self.move_reference=None;self.start_point=None;self.hover=None
+    def reset(self):super().reset();self.original=None;self.specs=None;self._merge=False;self.move_reference=None
     def _merge_candidate(self,j):
         n=len(self.original);i=self.index%n;j%=n
         if j not in ((i-1)%n,(i+1)%n):raise SlabError("Só é possível unir vértices vizinhos da abertura.")
@@ -174,7 +174,8 @@ class MoveOpeningVertexTool(_OpeningEditBase):
             specs.append(dict(self.specs[spec_idx]))
         self._merge=True;return pts,normalize_edge_specs(specs,len(pts))
     def _candidate(self,p):
-        n=len(self.original);i=self.index%n;q=QVector3D(p.x(),p.y(),self.original[0].z());self._merge=False
+        n=len(self.original);i=self.index%n;current=QVector3D(self.original[i])
+        q=QVector3D(current) if self.move_reference is None else QVector3D(current.x()+p.x()-self.move_reference.x(),current.y()+p.y()-self.move_reference.y(),self.original[0].z());self._merge=False
         nearest=None
         for j,v in enumerate(self.original):
             if j==i:continue
@@ -182,13 +183,19 @@ class MoveOpeningVertexTool(_OpeningEditBase):
             if d<=self.MERGE_TOL and (nearest is None or d<nearest[0]):nearest=(d,j)
         if nearest is not None:return self._merge_candidate(nearest[1])
         pts=[QVector3D(v) for v in self.original];pts[i]=q;return pts,[dict(s) for s in self.specs]
-    def on_hover(self,ctx):self.hover=self.point(ctx);ctx.viewport.update()
+    def on_hover(self,ctx):
+        if self.move_reference is None:return
+        self.hover=self.point(ctx);ctx.viewport.update()
     def on_click(self,ctx):
-        try:self._commit(ctx.viewport,*self._candidate(self.point(ctx)),"Vértices da abertura unidos." if self._merge else "Vértice da abertura movido.")
+        try:
+            p=self.point(ctx)
+            if self.move_reference is None:
+                self.move_reference=QVector3D(p);self.start_point=QVector3D(p);self.hover=None;self.controller.message("Agora clique no ponto de destino do vértice da abertura.");ctx.viewport.update();return
+            self._commit(ctx.viewport,*self._candidate(p),"Vértices da abertura unidos." if self._merge else "Vértice da abertura movido.")
         except SlabError as exc:self.controller.message(str(exc),error=True)
         ctx.viewport.update()
     def rubber_band_lines(self):
-        if self.hover is None:return []
+        if self.hover is None or self.move_reference is None:return []
         try:return _preview_lines(*self._candidate(self.hover))
         except SlabError:return []
 
@@ -294,22 +301,26 @@ class MoveOpeningTool(AxisMagnet, Tool):
     def __init__(self,controller):self.controller=controller;self.reset()
     def arm(self,slab,token,anchor):
         if not isinstance(token,(tuple,list)) or len(token)!=2:raise SlabError("Selecione novamente a abertura.")
-        self.slab=slab;self.opening_index=int(token[0]);self.anchor=QVector3D(anchor);self.origin=None;self.start_point=QVector3D(anchor);self.hover=None
+        self.slab=slab;self.opening_index=int(token[0]);self.anchor=QVector3D(anchor);self.origin=None;self.start_point=None;self.hover=None
         _o,_oi,_it,self.points,self.specs=_opening_data(slab,self.opening_index)
     def reset(self):self.slab=None;self.opening_index=None;self.anchor=None;self.origin=None;self.start_point=None;self.hover=None;self.points=None;self.specs=None
     def drag_plane(self,viewport):return (QVector3D(0,0,self.anchor.z()),QVector3D(0,0,1)) if self.anchor is not None else None
     def on_activate(self,viewport):
         if self.slab is None:QTimer.singleShot(0,self.controller.return_to_select)
+        else:self.controller.message("Clique no ponto de referência para mover a abertura.")
     def on_deactivate(self,viewport):self.reset();viewport.update()
     def _delta(self,p):
-        if self.origin is None:
-            self.origin=QVector3D(p);self.start_point=QVector3D(p)
+        if self.origin is None:return QVector3D(0,0,0)
         return QVector3D(p.x()-self.origin.x(),p.y()-self.origin.y(),0)
     def _candidate(self,p):
         d=self._delta(p);return [QVector3D(v)+d for v in self.points],[dict(s) for s in self.specs]
-    def on_hover(self,ctx):self.hover=QVector3D(ctx.world);ctx.viewport.update()
+    def on_hover(self,ctx):
+        if self.origin is None:return
+        self.hover=QVector3D(ctx.world);ctx.viewport.update()
     def on_click(self,ctx):
         try:
+            if self.origin is None:
+                self.origin=QVector3D(ctx.world);self.start_point=QVector3D(ctx.world);self.hover=None;self.controller.message("Agora clique no ponto de destino da abertura.");ctx.viewport.update();return
             pts,specs=self._candidate(ctx.world);ops,oi,item,_p,_s=_opening_data(self.slab,self.opening_index);new_ops=_store_opening(ops,oi,item,pts,specs)
             ctx.viewport.history.execute(EditSlab(ctx.viewport.scene,self.slab,openings=new_ops))
             if ctx.viewport.history.last_error:raise SlabError(ctx.viewport.history.last_error)
@@ -318,5 +329,5 @@ class MoveOpeningTool(AxisMagnet, Tool):
         ctx.viewport.update()
     def on_cancel(self,viewport):self.reset();self.controller.return_to_select();viewport.update()
     def rubber_band_lines(self):
-        if self.hover is None or self.points is None:return []
+        if self.hover is None or self.points is None or self.origin is None:return []
         return _preview_lines(*self._candidate(self.hover))

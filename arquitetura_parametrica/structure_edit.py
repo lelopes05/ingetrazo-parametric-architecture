@@ -33,7 +33,8 @@ class MoveWholeStructureTool(AxisMagnet, Tool):
     def prepare(self, group, anchor):
         self.group = group
         self.anchor = QVector3D(anchor)
-        self.start_point = QVector3D(anchor)
+        self.start_point = None
+        self.cursor_origin = None
 
     def on_activate(self, viewport):
         if self.group is None or self.group not in viewport.scene.groups:
@@ -41,7 +42,7 @@ class MoveWholeStructureTool(AxisMagnet, Tool):
             return
         viewport.begin_groups_preview([self.group])
         self.preview = True
-        self.controller.message(f"Mova {self.label} inteira no plano horizontal e clique.")
+        self.controller.message(f"Clique no ponto de referência para mover {self.label} inteira no plano horizontal.")
         viewport.update()
 
     def on_deactivate(self, viewport):
@@ -60,11 +61,8 @@ class MoveWholeStructureTool(AxisMagnet, Tool):
         return QVector3D(p.x() - origin.x(), p.y() - origin.y(), 0.0)
 
     def on_hover(self, ctx):
-        if self.group is None:
+        if self.group is None or self.cursor_origin is None:
             return
-        if self.cursor_origin is None:
-            self.cursor_origin = QVector3D(ctx.world)
-            self.start_point = QVector3D(ctx.world)
         self.delta = self._delta(ctx.world)
         if self.preview:
             ctx.viewport.set_groups_preview_offset(self.delta)
@@ -74,6 +72,10 @@ class MoveWholeStructureTool(AxisMagnet, Tool):
         try:
             if self.cursor_origin is None:
                 self.cursor_origin = QVector3D(ctx.world)
+                self.start_point = QVector3D(ctx.world)
+                self.controller.message(f"Agora clique no ponto de destino de {self.label}.")
+                ctx.viewport.update()
+                return
             self.delta = self._delta(ctx.world)
             if self.preview:
                 ctx.viewport.end_groups_preview()
@@ -546,8 +548,8 @@ class MoveColumnStationVerticalTool(Tool):
     vcb_label = "Cota"
 
     def __init__(self,controller):self.controller=controller;self.reset()
-    def reset(self):self.group=None;self.values=None;self.index=None;self.anchor=None;self.hover_z=None
-    def prepare(self,group,index,anchor):self.group=group;self.index=int(index);self.anchor=QVector3D(anchor);self.hover_z=float(anchor.z())
+    def reset(self):self.group=None;self.values=None;self.index=None;self.anchor=None;self.hover_z=None;self.reference_z=None;self.start_point=None
+    def prepare(self,group,index,anchor):self.group=group;self.index=int(index);self.anchor=QVector3D(anchor);self.hover_z=float(anchor.z());self.reference_z=None;self.start_point=None
     def on_activate(self,viewport):
         from .column_model import ColumnError,read_column
         if self.group is None or self.group not in viewport.scene.groups:
@@ -555,7 +557,7 @@ class MoveColumnStationVerticalTool(Tool):
         try:
             self.values=read_column(self.group);n=len(self.values.get("stations",[]))
             if self.index is None or self.index<=0 or self.index>=n-1:raise ColumnError("Selecione um vértice intermediário do pilar.")
-            self.controller.message("Mova o vértice para cima/baixo. As alturas dos segmentos vizinhos serão atualizadas.")
+            self.controller.message("Clique no ponto de referência do movimento vertical do vértice do pilar.")
         except ColumnError as exc:self.controller.message(str(exc),error=True);QTimer.singleShot(0,self.controller.return_to_select)
         viewport.update()
     def on_deactivate(self,viewport):self.reset();viewport.update()
@@ -564,7 +566,9 @@ class MoveColumnStationVerticalTool(Tool):
         yaw=getattr(viewport.camera,"yaw",0.0);normal=QVector3D(math.cos(yaw),math.sin(yaw),0)
         if normal.length()<1e-9:normal=QVector3D(1,0,0)
         return QVector3D(self.anchor),normal.normalized()
-    def on_hover(self,ctx):self.hover_z=float(ctx.world.z());ctx.viewport.update()
+    def on_hover(self,ctx):
+        if self.reference_z is None:return
+        self.hover_z=float(self.anchor.z())+(float(ctx.world.z())-self.reference_z);ctx.viewport.update()
     def _candidate_values(self,z):
         from .column_model import move_station_vertical,insertion_world
         base=insertion_world(self.group).z();return move_station_vertical(self.values,self.index,float(z),base)
@@ -575,7 +579,10 @@ class MoveColumnStationVerticalTool(Tool):
         if viewport.history.last_error:raise ColumnError(viewport.history.last_error)
         viewport.notify_scene_changed();self.controller.message("Cota do vértice do pilar atualizada.");self.reset();self.controller.return_to_select()
     def on_click(self,ctx):
-        try:self._commit(ctx.viewport,ctx.world.z())
+        try:
+            if self.reference_z is None:
+                self.reference_z=float(ctx.world.z());self.start_point=QVector3D(ctx.world);self.controller.message("Agora clique no ponto de destino do vértice do pilar.");ctx.viewport.update();return
+            z=float(self.anchor.z())+(float(ctx.world.z())-self.reference_z);self._commit(ctx.viewport,z)
         except Exception as exc:self.controller.message(str(exc),error=True)
         ctx.viewport.update()
     def on_value(self,viewport,value):

@@ -25,12 +25,13 @@ from .host import (COLUMN_HEIGHT_TOOL_KEY,COLUMN_TOOL_KEY,COLUMN_MOVE_TOOL_KEY,C
 from .levels import available_levels,level_by_name
 from .i18n import t, ui_locale
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
+from .icons import icon as pa_icon, set_symbol_icon
 
 log=logging.getLogger("ingetrazo.plugins.arquitetura_parametrica")
 
 def column_icon():
-    pm=QPixmap(32,32);pm.fill(Qt.transparent);p=QPainter(pm);p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(QPen(QColor("#8d633f"),2));p.setBrush(QColor("#d7b38b"));p.drawRect(9,4,14,24);p.drawLine(6,7,26,7);p.drawLine(6,25,26,25);p.end();return QIcon(pm)
+    return pa_icon("column")
+
 
 def selected_columns(scene):
     if getattr(scene,"edit_group",None) is not None:return []
@@ -46,7 +47,7 @@ class ColumnController(QWidget):
         self.tool=ColumnTool(self);self.height_tool=ChangeColumnHeightTool(self);self.move_tool=MoveWholeStructureTool(self,"pilar");self.curve_tool=ColumnCurveTool(self);self.incline_tool=ColumnInclineTool(self);self.station_z_tool=MoveColumnStationVerticalTool(self)
         self._segment_index=0;self.target=None;self._loading=False;self._queued=False;self._context_group=None;self._context_anchor=None;self._context_segment_index=None;self._context_station_index=None
         self._make_panel();self._make_action();self._make_context_palette();app.add_overlay(self.draw_overlay);app.viewport.installEventFilter(self)
-        app.viewport.sceneVersionChanged.connect(self.schedule_refresh);app.viewport.measurementChanged.connect(self.schedule_refresh);self.schedule_refresh()
+        app.viewport.sceneVersionChanged.connect(self.schedule_refresh);self.schedule_refresh()
 
     def _spin(self,step=0.01,minv=MIN_DIM,maxv=MAX_DIM):
         w=QDoubleSpinBox();w.setLocale(ui_locale());w.setDecimals(4);w.setRange(minv,maxv);w.setSingleStep(step);w.setSuffix(" m");w.setKeyboardTracking(False);w.valueChanged.connect(self.values_changed);return w
@@ -78,7 +79,10 @@ class ColumnController(QWidget):
         form.addRow(t("Eixo de referência"),anchor_box)
         self.hint=QLabel();self.hint.setWordWrap(True);lay.addWidget(self.hint);self.feedback=QLabel();self.feedback.setWordWrap(True);lay.addWidget(self.feedback);lay.addStretch()
         ver=QLabel(f"{t('Pilares paramétricos')} · v{__version__}");ver.setStyleSheet("color:#777;font-size:9pt;");lay.addWidget(ver)
-        self.dock=self.app.add_panel(t("Pilar"),self.panel,name="column");self.dock.hide();self.refresh_level_options();self.refresh_material_options();self.refresh_complex_profile_options();self._load_fields(self.defaults)
+        self.dock=getattr(self.app.window,"_arquitetura_parametrica_master_dock",None)
+        if self.dock is None:
+            self.dock=self.app.add_panel(t("Pilar"),self.panel,name="column");self.dock.hide()
+        self.refresh_level_options();self.refresh_material_options();self.refresh_complex_profile_options();self._load_fields(self.defaults)
 
     def _make_action(self):
         self.action=QAction(column_icon(),t("Pilar paramétrico"),self.app.window);self.action.setCheckable(True);self.action.setToolTip(t("Pilar paramétrico vertical\nSeção simples retangular/circular; estrutura preparada para perfil complexo; níveis e offsets."))
@@ -96,7 +100,7 @@ class ColumnController(QWidget):
     def _make_context_palette(self):
         self.context_palette=RadialPalette(self.app.window,popup=False,role="edit");row=self.context_palette.row
         def add(sym,tip,slot):
-            b=QToolButton(self.context_palette);b.setText(sym);b.setToolTip(t(tip));b.setFixedSize(34,34);f=b.font();f.setPointSize(16);b.setFont(f);b.clicked.connect(slot);row.addWidget(b);return b
+            b=QToolButton(self.context_palette);set_symbol_icon(b, sym);b.setToolTip(t(tip));b.setFixedSize(34,34);f=b.font();f.setPointSize(16);b.setFont(f);b.clicked.connect(slot);row.addWidget(b);return b
         self.context_move_btn=add("↔","Mover o pilar inteiro no plano horizontal.",self.begin_move_whole)
         self.context_insert_btn=add("＋","Inserir um vértice/estação neste ponto do eixo para criar novos segmentos.",self.begin_insert_station)
         self.context_station_z_btn=add("↕","Mover este vértice do pilar na vertical, alterando as alturas dos segmentos vizinhos.",self.begin_move_station_vertical)
@@ -147,18 +151,35 @@ class ColumnController(QWidget):
 
     def refresh_material_options(self):
         current=self.material.currentData() if hasattr(self,"material") and self.material.count() else self.defaults.get("material_name")
+        names=material_names(self.app.scene);key=tuple(names)
+        if getattr(self,"_material_options_key",None)==key:return
         self.material.blockSignals(True);self.material.clear();self.material.addItem(t("Padrão"),None)
-        for name in material_names(self.app.scene):self.material.addItem(name,name)
+        for name in names:self.material.addItem(name,name)
         i=self.material.findData(current);self.material.setCurrentIndex(i if i>=0 else 0);self.material.blockSignals(False)
+        self._material_options_key=key
 
     def refresh_complex_profile_options(self, preferred=None, embedded=None):
         cur = preferred if preferred is not None else (self.complex_profile.currentData() if self.complex_profile.count() else self.defaults.get("profile_ref"))
-        profiles=load_profiles();blocked=self.complex_profile.blockSignals(True);self.complex_profile.clear()
-        for prof in profiles:self.complex_profile.addItem(prof.get("name") or t("Perfil"),prof.get("id"))
+        profiles = sorted(load_profiles(), key=lambda p:(str(p.get("folder") or "").casefold(), str(p.get("name") or "").casefold()))
+        blocked=self.complex_profile.blockSignals(True);self.complex_profile.clear();current_folder=None
+        for prof in profiles:
+            folder=str(prof.get("folder") or "Meus Perfis")
+            if folder!=current_folder:
+                if self.complex_profile.count():self.complex_profile.insertSeparator(self.complex_profile.count())
+                self.complex_profile.addItem(f"— {folder} —",None)
+                try:self.complex_profile.model().item(self.complex_profile.count()-1).setEnabled(False)
+                except Exception:pass
+                current_folder=folder
+            self.complex_profile.addItem(prof.get("name") or t("Perfil"),prof.get("id"))
         ids=[self.complex_profile.itemData(i) for i in range(self.complex_profile.count())]
-        if cur and cur not in ids and isinstance(embedded,dict):self.complex_profile.addItem(f"{embedded.get('name') or t('Perfil')}  ·  {t('incorporado')}",cur)
-        if self.complex_profile.count()==0:self.complex_profile.addItem(t("Nenhum perfil complexo disponível"),None)
-        idx=self.complex_profile.findData(cur);self.complex_profile.setCurrentIndex(idx if idx>=0 else 0)
+        if cur and cur not in ids and isinstance(embedded,dict):
+            self.complex_profile.addItem(f"{embedded.get('name') or t('Perfil')}  ·  {t('incorporado')}",cur)
+        if not any(self.complex_profile.itemData(i) is not None for i in range(self.complex_profile.count())):
+            self.complex_profile.addItem(t("Nenhum perfil complexo disponível"),None)
+        idx=self.complex_profile.findData(cur)
+        if idx<0:
+            idx=next((i for i in range(self.complex_profile.count()) if self.complex_profile.itemData(i) is not None),0)
+        self.complex_profile.setCurrentIndex(idx)
         self.complex_profile.setEnabled(any(self.complex_profile.itemData(i) is not None for i in range(self.complex_profile.count())))
         self.complex_profile.blockSignals(blocked)
 

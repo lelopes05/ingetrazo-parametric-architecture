@@ -25,12 +25,14 @@ from .materials import material_names
 from .profile_library import load_profiles, profile_by_id
 from .i18n import t,ui_locale
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
+from .icons import icon as pa_icon, set_symbol_icon
 from .palette import RadialPalette
 
 log=logging.getLogger("ingetrazo.plugins.arquitetura_parametrica.beam")
 
 def beam_icon():
-    pm=QPixmap(32,32);pm.fill(Qt.transparent);p=QPainter(pm);p.setRenderHint(QPainter.Antialiasing);p.setPen(QPen(QColor("#8d633f"),2));p.setBrush(QColor("#d7b38b"));p.drawRect(4,11,24,10);p.drawLine(7,8,7,24);p.drawLine(25,8,25,24);p.end();return QIcon(pm)
+    return pa_icon("beam")
+
 
 def selected_beams(scene):
     if getattr(scene,"edit_group",None) is not None:return []
@@ -47,7 +49,7 @@ class BeamController(QWidget):
         self.move_tool=MoveWholeStructureTool(self,"viga");self.curve_tool=BeamCurveTool(self);self.vertical_curve_tool=BeamVerticalCurveTool(self);self.incline_tool=BeamInclineTool(self)
         self.target=None;self._loading=False;self._queued=False;self._endpoint_group=None;self._endpoint_anchor=None;self._endpoint_is_endpoint=False
         self._make_panel();self._make_action();self._make_endpoint_palette();app.add_overlay(self.draw_overlay);app.viewport.installEventFilter(self)
-        app.viewport.sceneVersionChanged.connect(self.schedule_refresh);app.viewport.measurementChanged.connect(self.schedule_refresh);self.schedule_refresh()
+        app.viewport.sceneVersionChanged.connect(self.schedule_refresh);self.schedule_refresh()
     def _spin(self,step=.01,minv=MIN_DIM,maxv=MAX_DIM):
         w=QDoubleSpinBox();w.setLocale(ui_locale());w.setDecimals(4);w.setRange(minv,maxv);w.setSingleStep(step);w.setSuffix(" m");w.setKeyboardTracking(False);w.valueChanged.connect(self.values_changed);return w
     def _make_panel(self):
@@ -70,7 +72,10 @@ class BeamController(QWidget):
                 b=QToolButton(box);b.setText("●");b.setCheckable(True);b.setAutoExclusive(True);b.setFixedSize(27,27);b.clicked.connect(lambda _=False,k=key:self.anchor_changed(k));grid.addWidget(b,r,c);self.anchor_buttons[key]=b
         form.addRow(t("Eixo de referência"),box)
         self.hint=QLabel();self.hint.setWordWrap(True);lay.addWidget(self.hint);self.feedback=QLabel();self.feedback.setWordWrap(True);lay.addWidget(self.feedback);lay.addStretch();ver=QLabel(f"{t('Vigas paramétricas')} · v{__version__}");ver.setStyleSheet("color:#777;font-size:9pt;");lay.addWidget(ver)
-        self.dock=self.app.add_panel(t("Viga"),self.panel,name="beam");self.dock.hide();self.refresh_level_options();self.refresh_material_options();self.refresh_complex_profile_options();self._load_fields(self.defaults)
+        self.dock=getattr(self.app.window,"_arquitetura_parametrica_master_dock",None)
+        if self.dock is None:
+            self.dock=self.app.add_panel(t("Viga"),self.panel,name="beam");self.dock.hide()
+        self.refresh_level_options();self.refresh_material_options();self.refresh_complex_profile_options();self._load_fields(self.defaults)
     def _make_action(self):
         self.action=QAction(beam_icon(),t("Viga paramétrica"),self.app.window);self.action.setCheckable(True);self.action.setToolTip(t("Viga paramétrica\nComprimento, largura, altura, inclinação e curvaturas horizontal/vertical."));register_tool(self.app,self.tool,self.action,key=BEAM_TOOL_KEY);self.action.triggered.connect(self.start_drawing)
         register_tool(self.app,self.move_free_tool,key=BEAM_MOVE_FREE_TOOL_KEY);register_tool(self.app,self.move_continue_tool,key=BEAM_MOVE_CONTINUE_TOOL_KEY);register_tool(self.app,self.move_vertical_tool,key=BEAM_MOVE_VERTICAL_TOOL_KEY)
@@ -83,7 +88,7 @@ class BeamController(QWidget):
     def _make_endpoint_palette(self):
         self.endpoint_palette=RadialPalette(self.app.window,popup=False,role="edit");row=self.endpoint_palette.row
         def add(sym,tip,slot):
-            b=QToolButton(self.endpoint_palette);b.setText(sym);b.setToolTip(t(tip));b.setFixedSize(34,34);f=b.font();f.setPointSize(16);b.setFont(f);b.clicked.connect(slot);row.addWidget(b);return b
+            b=QToolButton(self.endpoint_palette);set_symbol_icon(b, sym);b.setToolTip(t(tip));b.setFixedSize(34,34);f=b.font();f.setPointSize(16);b.setFont(f);b.clicked.connect(slot);row.addWidget(b);return b
         self.endpoint_free_btn=add("✥","Mover extremo livremente no plano horizontal.",self.begin_endpoint_free)
         self.endpoint_continue_btn=add("→","Prolongar ou encurtar a viga no mesmo eixo.",self.begin_endpoint_continue)
         self.endpoint_vertical_btn=add("↕","Mover este extremo na vertical e definir a inclinação a partir dele.",self.begin_endpoint_vertical)
@@ -124,19 +129,33 @@ class BeamController(QWidget):
         for lv in available_levels(self.app):self.level.addItem(f"{lv['name']}  ({lv['z']:+.2f} m)",lv['name'])
         i=self.level.findData(cur);self.level.setCurrentIndex(i if i>=0 else 0);self.level.blockSignals(False)
     def refresh_material_options(self):
-        cur=self.material.currentData() if self.material.count() else self.defaults.get("material_name");self.material.blockSignals(True);self.material.clear();self.material.addItem(t("Padrão"),None)
-        for name in material_names(self.app.scene):self.material.addItem(name,name)
-        i=self.material.findData(cur);self.material.setCurrentIndex(i if i>=0 else 0);self.material.blockSignals(False)
+        cur=self.material.currentData() if self.material.count() else self.defaults.get("material_name");names=material_names(self.app.scene);key=tuple(names)
+        if getattr(self,"_material_options_key",None)==key:return
+        self.material.blockSignals(True);self.material.clear();self.material.addItem(t("Padrão"),None)
+        for name in names:self.material.addItem(name,name)
+        i=self.material.findData(cur);self.material.setCurrentIndex(i if i>=0 else 0);self.material.blockSignals(False);self._material_options_key=key
     def refresh_complex_profile_options(self, preferred=None, embedded=None):
         cur = preferred if preferred is not None else (self.complex_profile.currentData() if self.complex_profile.count() else self.defaults.get("profile_ref"))
-        profiles = load_profiles()
-        blocked=self.complex_profile.blockSignals(True);self.complex_profile.clear()
-        for prof in profiles:self.complex_profile.addItem(prof.get("name") or t("Perfil"),prof.get("id"))
+        profiles = sorted(load_profiles(), key=lambda p:(str(p.get("folder") or "").casefold(), str(p.get("name") or "").casefold()))
+        blocked=self.complex_profile.blockSignals(True);self.complex_profile.clear();current_folder=None
+        for prof in profiles:
+            folder=str(prof.get("folder") or "Meus Perfis")
+            if folder!=current_folder:
+                if self.complex_profile.count():self.complex_profile.insertSeparator(self.complex_profile.count())
+                self.complex_profile.addItem(f"— {folder} —",None)
+                try:self.complex_profile.model().item(self.complex_profile.count()-1).setEnabled(False)
+                except Exception:pass
+                current_folder=folder
+            self.complex_profile.addItem(prof.get("name") or t("Perfil"),prof.get("id"))
         ids=[self.complex_profile.itemData(i) for i in range(self.complex_profile.count())]
         if cur and cur not in ids and isinstance(embedded,dict):
             self.complex_profile.addItem(f"{embedded.get('name') or t('Perfil')}  ·  {t('incorporado')}",cur)
-        if self.complex_profile.count()==0:self.complex_profile.addItem(t("Nenhum perfil complexo disponível"),None)
-        idx=self.complex_profile.findData(cur);self.complex_profile.setCurrentIndex(idx if idx>=0 else 0)
+        if not any(self.complex_profile.itemData(i) is not None for i in range(self.complex_profile.count())):
+            self.complex_profile.addItem(t("Nenhum perfil complexo disponível"),None)
+        idx=self.complex_profile.findData(cur)
+        if idx<0:
+            idx=next((i for i in range(self.complex_profile.count()) if self.complex_profile.itemData(i) is not None),0)
+        self.complex_profile.setCurrentIndex(idx)
         self.complex_profile.setEnabled(any(self.complex_profile.itemData(i) is not None for i in range(self.complex_profile.count())))
         self.complex_profile.blockSignals(blocked)
 
