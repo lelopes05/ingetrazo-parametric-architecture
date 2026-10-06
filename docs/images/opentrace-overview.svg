@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750" viewBox="0 0 1200 750">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111722"/><stop offset="1" stop-color="#1c2633"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/><stop offset="1" stop-color="#edf2f7"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-opacity=".25"/>
+    </filter>
+    <style>
+      .ui{font-family:Inter,Segoe UI,Arial,sans-serif}.muted{fill:#8aa0b7}.label{fill:#d9e3ef;font-size:15px}
+      .small{font-size:13px}.tiny{font-size:11px}.dark{fill:#1b2530}.line{stroke:#d7dee7;stroke-width:1}
+      .blue{fill:#2878d0}.accent{fill:#2f8be6}.card{fill:url(#panel);stroke:#cfd8e3;stroke-width:1}
+    </style>
+  </defs>
+  <rect width="1200" height="750" rx="24" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1200" height="54" rx="24" fill="#0d131c"/>
+  <rect x="0" y="30" width="1200" height="24" fill="#0d131c"/>
+  <g class="ui">
+    <text x="28" y="34" fill="#eef5ff" font-size="20" font-weight="700">OpenTrace BIM</text>
+    <text x="190" y="34" class="muted" font-size="14">for IngeTrazo</text>
+    <text x="28" y="84" fill="#f1f5f9" font-size="28" font-weight="700">Parametric architecture, one workspace</text>
+    <text x="28" y="110" class="muted" font-size="14">Unified wall/slab/column/beam/profile workflow</text>
+    
+  <rect x="28" y="132" width="778" height="548" rx="14" fill="#dfe6ec" filter="url(#shadow)"/>
+  <rect x="28" y="132" width="778" height="36" rx="14" fill="#293746"/>
+  <rect x="28" y="154" width="778" height="14" fill="#293746"/>
+  <text x="48" y="156" class="label small">Vista 3D</text>
+  <g transform="translate(76 205)">
+    <polygon points="80,330 520,330 650,250 215,250" fill="#c6cfd7"/>
+    <polygon points="110,315 110,115 360,115 360,315" fill="#f2f5f7" stroke="#aeb9c4" stroke-width="2"/>
+    <polygon points="360,315 360,165 590,165 590,315" fill="#e7edf1" stroke="#aeb9c4" stroke-width="2"/>
+    <rect x="165" y="205" width="78" height="110" fill="#52697c"/>
+    <rect x="405" y="215" width="105" height="68" fill="#7ca2bf"/>
+    <rect x="285" y="105" width="34" height="210" fill="#b5bec6"/>
+    <rect x="278" y="142" width="250" height="30" fill="#aeb7c0"/>
+    <path d="M110 115 H360 V315 H110 Z" fill="none" stroke="#3d5568" stroke-width="4"/>
+    <path d="M360 165 H590 V315 H360 Z" fill="none" stroke="#3d5568" stroke-width="4"/>
+    <path d="M110 145 H360" stroke="#d49562" stroke-width="8" stroke-dasharray="26 6"/>
+    <circle cx="110" cy="115" r="5" fill="#2f8be6"/><circle cx="360" cy="115" r="5" fill="#2f8be6"/>
+    <circle cx="590" cy="165" r="5" fill="#2f8be6"/>
+    <text x="80" y="370" fill="#557080" font-size="13">parede + laje + viga + pilar + abertura</text>
+  </g>
+
+  <rect x="830" y="132" width="342" height="548" rx="14" class="card" filter="url(#shadow)"/>
+  <rect x="830" y="132" width="342" height="48" rx="14" fill="#202d3a"/>
+  <rect x="830" y="162" width="342" height="18" fill="#202d3a"/>
+  <text x="850" y="162" fill="#fff" font-size="17" font-weight="700">OpenTrace BIM</text>
+  <g transform="translate(846 200)">
+    <rect x="0" y="0" width="310" height="42" rx="9" fill="#e9f2fb"/>
+    <text x="12" y="26" class="dark small" font-weight="700">Início   Parede   Laje   Pilar   Viga   Perfis</text>
+    <rect x="50" y="37" width="54" height="3" class="blue"/>
+    <text x="0" y="78" class="dark" font-size="16" font-weight="700">Parede paramétrica</text>
+    <text x="0" y="110" class="dark small">Preset</text>
+    <rect x="0" y="120" width="310" height="34" rx="6" fill="#fff" stroke="#cbd5df"/>
+    <text x="10" y="142" class="dark small">Cerâmica 11,5 + reboco</text>
+    <text x="0" y="182" class="dark small">Alinhamento</text>
+    <rect x="0" y="192" width="148" height="34" rx="6" fill="#fff" stroke="#cbd5df"/>
+    <text x="10" y="214" class="dark small">Externo</text>
+    <text x="166" y="182" class="dark small">Altura</text>
+    <rect x="166" y="192" width="144" height="34" rx="6" fill="#fff" stroke="#cbd5df"/>
+    <text x="178" y="214" class="dark small">3,00 m</text>
+    <text x="0" y="258" class="dark small" font-weight="700">Composição</text>
+    <rect x="0" y="270" width="310" height="132" rx="8" fill="#fff" stroke="#cbd5df"/>
+    <line x1="0" y1="302" x2="310" y2="302" class="line"/>
+    <line x1="0" y1="336" x2="310" y2="336" class="line"/>
+    <line x1="0" y1="370" x2="310" y2="370" class="line"/>
+    <text x="10" y="292" class="dark tiny" font-weight="700">Nome</text>
+    <text x="200" y="292" class="dark tiny" font-weight="700">Esp.</text>
+    <text x="248" y="292" class="dark tiny" font-weight="700">Núcleo</text>
+    <text x="10" y="324" class="dark tiny">Reboco externo</text><text x="200" y="324" class="dark tiny">1,5 cm</text>
+    <text x="10" y="358" class="dark tiny">Bloco cerâmico</text><text x="200" y="358" class="dark tiny">11,5 cm</text><text x="265" y="358" class="blue tiny">●</text>
+    <text x="10" y="392" class="dark tiny">Reboco interno</text><text x="200" y="392" class="dark tiny">1,5 cm</text>
+    <rect x="0" y="428" width="148" height="36" rx="7" class="blue"/><text x="24" y="451" fill="#fff" class="small">Editar camadas</text>
+    <rect x="162" y="428" width="148" height="36" rx="7" fill="#fff" stroke="#9fb0bf"/><text x="184" y="451" class="dark small">Aberturas</text>
+  </g>
+  <rect x="310" y="642" width="480" height="28" rx="8" fill="#1f2b37"/>
+  <text x="330" y="661" fill="#dbe8f3" class="small">Combinação de Camadas: Executivo - Planta   ⚙</text>
+
+    <text x="28" y="724" class="muted tiny">UI concept mockup · OpenTrace BIM active development · not a runtime screenshot</text>
+  </g>
+</svg>
