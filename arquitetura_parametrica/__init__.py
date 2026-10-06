@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Parametric architecture tools for IngeTrazo 0.5.7 — profiled walls and hosted openings.
+"""Parametric architecture tools for IngeTrazo 0.5.7+ — profiled walls and hosted openings.
 
 Development draft: implementation only; runtime validation is pending.
 Keep this package's directory name stable: it identifies the extension.
 """
 
-__version__ = "0.11.0"
+__version__ = "0.11.1"
 
 
 def setup(app):
