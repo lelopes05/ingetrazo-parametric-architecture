@@ -1,6 +1,35 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Version-pinned adapter for IngeTrazo 0.5.7 tool routing."""
+"""Compatibility adapter for IngeTrazo 0.5.7+ tool routing."""
 from core.version import __version__ as HOST_VERSION
+
+MIN_HOST_VERSION = (0, 5, 7)
+
+
+def _host_version_tuple(raw):
+    """Return the numeric major/minor/patch prefix of an IngeTrazo version.
+
+    Suffixes such as 0.5.8-dev are accepted. The structural attribute checks
+    below remain the real compatibility guard for later host versions.
+    """
+    parts = []
+    for chunk in str(raw).split("."):
+        digits = ""
+        for char in chunk:
+            if char.isdigit():
+                digits += char
+            else:
+                break
+        if not digits:
+            break
+        parts.append(int(digits))
+        if len(parts) == 3:
+            break
+    if len(parts) < 2:
+        return None
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
 
 WALL_TOOL_KEY = "arquitetura_parametrica_wall"
 CURVED_WALL_TOOL_KEY = "arquitetura_parametrica_curved_wall"
@@ -16,9 +45,9 @@ WALL_LEAN_TOOL_KEY = "arquitetura_parametrica_wall_lean"
 
 
 def require_reference_host(app):
-    if HOST_VERSION != "0.5.7":
-        raise RuntimeError("Esta versão do plugin requer IngeTrazo 0.5.7. "
-                           "Compatibilidade com outras versões ainda não validada.")
+    host_version = _host_version_tuple(HOST_VERSION)
+    if host_version is None or host_version < MIN_HOST_VERSION:
+        raise RuntimeError("Esta versão do plugin requer IngeTrazo 0.5.7 ou posterior.")
     for name in ("_tools", "_tool_actions", "_tool_group", "_activate_tool"):
         if not hasattr(app.window, name):
             raise RuntimeError("A integração de ferramentas desta instalação não é compatível.")
