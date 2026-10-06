@@ -23,6 +23,16 @@ A newer **0.11 development snapshot** exists with a unified OpenTrace BIM panel,
 
 See [FEATURES.md](FEATURES.md) for the detailed capability matrix and [ROADMAP.md](ROADMAP.md) for active development.
 
+## Development previews
+
+These are **UI concept mockups**, not runtime screenshots. They illustrate the direction of the unified OpenTrace BIM workspace, resource libraries and Layer Combinations integration while the current tested baseline remains 0.10.2-dev.
+
+![OpenTrace BIM unified architecture workspace](docs/images/opentrace-overview.svg)
+
+![OpenTrace BIM profile and office library](docs/images/opentrace-profile-library.svg)
+
+![OpenTrace BIM Layer Combinations](docs/images/opentrace-layer-combinations.svg)
+
 ---
 
 ## What is already implemented
