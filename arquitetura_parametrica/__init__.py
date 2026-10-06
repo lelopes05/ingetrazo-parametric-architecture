@@ -8,6 +8,37 @@ Keep this package's directory name stable: it identifies the extension.
 __version__ = "0.11.1"
 
 
+def _setup_bundled_layer_combinations(app):
+    """Start the bundled Layer Combinations 0.3.0 when no standalone copy exists.
+
+    A dedicated ExtensionApp key preserves the same document-data namespace used
+    by the former standalone extension, so existing .igz files remain compatible.
+    """
+    if getattr(app.window, "_layer_combinations_service", None) is not None:
+        return
+
+    # If an older standalone installation is still present, let IngeTrazo load
+    # it normally instead of creating duplicate menus/controllers in this run.
+    try:
+        from core.extensions import plugin_dirs
+        for p_dir in plugin_dirs():
+            package = p_dir / "layer_combinations"
+            module = p_dir / "layer_combinations.py"
+            if ((package.is_dir() and (package / "__init__.py").is_file())
+                    or module.is_file()):
+                return
+    except Exception:
+        pass
+
+    from views.extension_api import ExtensionApp
+    from .layer_combinations import setup as setup_layer_combinations
+
+    layer_app = ExtensionApp(app.window, "layer_combinations")
+    setup_layer_combinations(layer_app)
+    # Retain the adapter for callbacks for the lifetime of the main window.
+    app.window._opentrace_bundled_layer_combinations_app = layer_app
+
+
 def setup(app):
     # Import implementation from submodules: the host must not discover the
     # spatial tool as a one-shot menu tool and instantiate it without its UI.
@@ -15,6 +46,9 @@ def setup(app):
     from .ui import WallController
 
     require_reference_host(app)
+
+    # Bundled since 0.11.1: one catalog download installs the full workflow.
+    _setup_bundled_layer_combinations(app)
 
     # Register exactly ONE extension dock before the host restores its saved
     # window state.  Previous 0.11 builds created five temporary docks and,

@@ -5,7 +5,7 @@
 > Formerly developed under the working names **IngeTrazo Architecture** / **Parametric Architecture**.
 
 ![Status](https://img.shields.io/badge/status-active%20development-2ea44f)
-![Tested build](https://img.shields.io/badge/tested-0.10.2--dev-blue)
+![Tested build](https://img.shields.io/badge/tested-0.11.1-blue)
 ![IngeTrazo](https://img.shields.io/badge/IngeTrazo-0.5.7%2B-blueviolet)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
@@ -15,11 +15,11 @@ The current host is [IngeTrazo](https://ingetrazo.com/). The long-term architect
 
 ## Current status
 
-**Latest user-tested build:** `0.10.2-dev-profile-library-ui`
+**Latest user-tested build:** `0.11.1`
 
 The tested build already covers a broad architectural modeling workflow. It is still experimental software, but the core objects survive save/close/reopen in `.igz` files and remain parametrically editable.
 
-A newer **0.11 development snapshot** exists with a unified OpenTrace BIM panel, expanded preset/catalog work, profile folders and deeper Layer Combinations integration. That snapshot is intentionally treated as **pre-alpha until it passes the same real-world testing as the current tested build**.
+**0.11.1** adds the unified OpenTrace BIM panel, expanded presets/catalog work, profile folders, the bundled Layer Combinations companion with preset templates, and opt-in update checks.
 
 See [FEATURES.md](FEATURES.md) for the detailed capability matrix and [ROADMAP.md](ROADMAP.md) for active development.
 

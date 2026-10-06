@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea,
-    QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QPushButton, QScrollArea, QStackedWidget, QToolButton, QVBoxLayout,
+    QWidget,
 )
 
+from . import __version__
 from .icons import icon
 from .preset_catalog import builtins
 from .profile_library import load_profiles
@@ -52,6 +54,7 @@ class ArchitectureSuitePanel:
             self._add_page(key,wrapped)
             ctrl.dock=self.master_dock
         self.show_page("home",show_dock=False);self._wire();self.refresh_home();self.sync_mode_buttons()
+        QTimer.singleShot(1800,self._auto_check_updates_on_startup)
 
     def _add_page(self,key,widget):
         self.pages[key]=widget;self.stack.addWidget(widget)
@@ -67,6 +70,41 @@ class ArchitectureSuitePanel:
         lay.addLayout(grid)
         self.summary=QLabel();self.summary.setWordWrap(True);self.summary.setStyleSheet("color:#666;");lay.addWidget(self.summary)
         self.intersections=QLabel();self.intersections.setWordWrap(True);lay.addWidget(self.intersections)
+
+        update_box=QFrame();update_box.setFrameShape(QFrame.StyledPanel)
+        update_lay=QVBoxLayout(update_box);update_lay.setContentsMargins(8,8,8,8);update_lay.setSpacing(6)
+        update_lay.addWidget(QLabel(f"<b>OpenTrace BIM {__version__}</b>"))
+        self.update_status=QLabel(
+            "A verificação automática consulta apenas o catálogo oficial. "
+            "Nada é baixado sem confirmação."
+        )
+        self.update_status.setWordWrap(True);self.update_status.setStyleSheet("color:#666;")
+        update_lay.addWidget(self.update_status)
+
+        self.auto_update_check=QCheckBox("Verificar atualizações automaticamente")
+        self.update_button=QPushButton("Verificar atualizações")
+        update_lay.addWidget(self.auto_update_check);update_lay.addWidget(self.update_button)
+        lay.addWidget(update_box)
+
+        self.update_manager=None
+        try:
+            from .updater import (
+                UpdateManager, auto_check_enabled, set_auto_check_enabled,
+            )
+            self.update_manager=UpdateManager(w)
+            self.auto_update_check.setChecked(auto_check_enabled())
+            self.auto_update_check.toggled.connect(set_auto_check_enabled)
+            self.auto_update_check.toggled.connect(self._auto_update_toggled)
+            self.update_button.clicked.connect(
+                lambda: self.update_manager.check(manual=True)
+            )
+        except Exception as exc:
+            self.auto_update_check.setEnabled(False)
+            self.update_button.setEnabled(False)
+            self.update_status.setText(
+                f"Atualizações indisponíveis nesta instalação: {type(exc).__name__}: {exc}"
+            )
+
         lay.addStretch(1);return w
 
     def _actions_for(self,key,ctrl):
@@ -125,6 +163,20 @@ class ArchitectureSuitePanel:
         # obvious default instead of making the user click a second control.
         if key in ("wall","slab","column","beam"):
             self._activate_default(key)
+
+    def _auto_update_toggled(self, enabled):
+        if enabled and self.update_manager is not None:
+            # The checkbox itself is the user's consent to perform automatic
+            # catalog checks. Still, no package is downloaded without another
+            # explicit confirmation.
+            QTimer.singleShot(0, lambda: self.update_manager.check(manual=False))
+
+    def _auto_check_updates_on_startup(self):
+        if (
+            self.update_manager is not None
+            and self.auto_update_check.isChecked()
+        ):
+            self.update_manager.check(manual=False)
 
     def _wire(self):
         for key,ctrl in self.controllers.items():
