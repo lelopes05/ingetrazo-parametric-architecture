@@ -5,7 +5,7 @@
 > Formerly developed under the working names **IngeTrazo Architecture** / **Parametric Architecture**.
 
 ![Status](https://img.shields.io/badge/status-active%20development-2ea44f)
-![Tested build](https://img.shields.io/badge/tested-0.11.1-blue)
+![Release candidate](https://img.shields.io/badge/release%20candidate-0.12.8-orange)
 ![IngeTrazo](https://img.shields.io/badge/IngeTrazo-0.5.7%2B-blueviolet)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
@@ -15,11 +15,13 @@ The current host is [IngeTrazo](https://ingetrazo.com/). The long-term architect
 
 ## Current status
 
-**Latest user-tested build:** `0.11.1`
+**Latest published user-tested build:** `0.11.1`
 
-The tested build already covers a broad architectural modeling workflow. It is still experimental software, but the core objects survive save/close/reopen in `.igz` files and remain parametrically editable.
+**Current release candidate:** `0.12.8`
 
-**0.11.1** adds the unified OpenTrace BIM panel, expanded presets/catalog work, profile folders, the bundled Layer Combinations companion with preset templates, and opt-in update checks.
+The published baseline already covers a broad architectural modeling workflow. Core parametric objects survive save/close/reopen in `.igz` files and remain editable.
+
+The 0.12.8 release candidate expands OpenTrace into a much richer openBIM workflow: IFC4 semantics and official Pset/Qto catalogues, reusable BIM libraries, materials and appearances, zones/systems/groups, georeferencing, mapped representations, stronger IFC import/round-trip handling, an experimental freeform Membrane object, and an English-only public UI while localization coverage is rebuilt. New 0.12.8 interoperability and membrane work remains under active real-world validation until the release is published.
 
 See [FEATURES.md](FEATURES.md) for the detailed capability matrix and [ROADMAP.md](ROADMAP.md) for active development.
 
@@ -147,6 +149,30 @@ Instead of forcing every operation into permanent toolbars, OpenTrace BIM uses c
 
 Parametric information is stored inside the `.igz` document. Real testing has confirmed that saved parametric objects reopen and remain editable.
 
+### BIM / IFC4 interoperability
+
+The 0.12.8 release candidate adds a substantially deeper BIM layer while keeping OpenTrace as the authority for parametric geometry:
+
+- persistent IFC GlobalIds and spatial hierarchy;
+- IFC classes/types for walls, slabs, beams, columns and additional architectural classes;
+- official IFC4 Property Set / Quantity Set catalogue;
+- reusable BIM type, classification and material-style libraries;
+- IfcMaterialLayerSet, IfcMaterialProfileSetUsage and IfcMaterialConstituentSet where appropriate;
+- zones, systems and groups;
+- construction status / phase metadata such as New, Existing, Demolish and Temporary;
+- georeferencing with projected CRS / map conversion data;
+- material appearances;
+- IfcRepresentationMap for repeated compatible instances;
+- Open / Import / Link IFC workflows;
+- improved external IFC unit, placement, mapping and property handling;
+- OpenTrace round-trip metadata for recognised parametric objects.
+
+Compatibility profiles are maintained separately for OpenTrace fidelity and interoperability targets such as Bonsai / Blender, Archicad and Revit-oriented workflows.
+
+### Membrane — experimental
+
+0.12.8 introduces an experimental architectural freeform surface whose boundary is the controlling geometry. Curved boundary edges remain true curved controls, the surface stays attached to the boundary, and the object can carry thickness and OpenTrace construction compositions. The tool is intentionally a lightweight architectural surface workflow rather than a structural membrane solver.
+
 ---
 
 ## Layer Combinations companion module
@@ -181,7 +207,7 @@ This is the foundation for rules such as “walls in different intersection grou
 
 OpenTrace BIM is moving toward reusable architectural resources rather than forcing every project to start from blank parameters.
 
-The active development snapshot includes work on:
+Current development includes:
 
 - wall assembly presets;
 - slab assembly presets;
@@ -206,17 +232,28 @@ The goal is to let an office build a library once and reuse it across projects �
 
 ---
 
-## Installation — tested IngeTrazo build
+## Installation
 
-1. In IngeTrazo, open **Extensions → Open plugins folder**.
-2. Copy the `arquitetura_parametrica` folder into the plugin directory.
-3. Restart IngeTrazo.
+Release 0.12.8 provides two user-facing installation options:
 
-On Windows the user plugin directory is normally:
+- **Installer package:** extract the ZIP and run `INSTALL_OPENTRACE_BIM.py` with Python 3. It installs/updates the extension in the per-user IngeTrazo plugins directory and backs up an older installation outside the plugins folder.
+- **Manual package:** in IngeTrazo choose **Extensions → Open plugins folder**, close IngeTrazo, copy the `OpenTrace_BIM` folder there, then restart IngeTrazo.
 
-`%APPDATA%\ingetrazo\plugins\`
+The final manual layout must be:
 
-The package/folder name remains `arquitetura_parametrica` for compatibility while the project transitions to the **OpenTrace BIM** name.
+`.../plugins/OpenTrace_BIM/__init__.py`
+
+and **not**:
+
+`.../plugins/OpenTrace_BIM/OpenTrace_BIM/__init__.py`
+
+### Updating from 0.11.1 or earlier
+
+Older public releases used the folder name `arquitetura_parametrica`. Do **not** leave both that folder and `OpenTrace_BIM` active inside IngeTrazo's plugins directory or the extension can be loaded twice. The Python installer handles the migration automatically. For a manual update, delete the old folder or move it **outside** the plugins directory.
+
+OpenTrace 0.12.8 preserves the legacy document-data namespace internally so existing `.igz` BIM project data remains readable after the branded folder rename.
+
+A separate catalogue/update package keeps the 0.11.1 in-app updater compatible during this one-release folder-name transition.
 
 ---
 
@@ -270,7 +307,7 @@ OpenTrace BIM
 
 ## Testing and contributions
 
-Architectural edge cases are especially useful:
+0.12.8 testing is especially useful for IFC import/export, external IFC unit/placement handling, BIM relations, membrane editing, inclined-wall texture behavior and total-height editing. Architectural edge cases remain especially useful:
 
 - unusual wall junctions;
 - curve + curve intersections;
