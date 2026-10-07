@@ -1,0 +1,6 @@
+IFC schema catalogue data in this directory was extracted from IfcOpenShell 0.9.0
+(ifcopenshell/util/schema), distributed under LGPL-3.0-or-later.
+IfcOpenShell: https://ifcopenshell.org / https://github.com/IfcOpenShell/IfcOpenShell
+The OpenTrace plugin remains GPL-3.0-or-later. These files contain IFC schema
+entity/property template metadata used for offline catalogue lookup only; no
+platform-specific IfcOpenShell binary is bundled.
