@@ -9,7 +9,7 @@ Legend:
 - 🚧 actively being developed
 - 🧭 planned
 
-## Current tested baseline — 0.10.2-dev
+## Published tested baseline — 0.11.1
 
 ### Architecture objects
 - ✅ Straight parametric walls
@@ -50,19 +50,22 @@ Legend:
 - ✅ New-project template chooser
 - 🚧 Parametric junctions progressively consuming intersection-group rules
 
-## 0.11 development snapshot
+## 0.12.8 release candidate
 
-- 🧪 Unified OpenTrace BIM side panel instead of many independent extension tabs
-- 🧪 Reworked icon family
-- 🧪 Built-in wall assembly presets
-- 🧪 Built-in slab assembly presets
-- 🧪 Beam/column presets for concrete and timber
-- 🧪 Structural steel profile catalogue
-- 🧪 Profile folder/category system
-- 🧪 Larger built-in Complex Profile library
-- 🧪 Deeper Layer Combinations integration
+- 🧪 English-only OpenTrace UI for consistent international presentation
+- 🧪 Official IFC4 entity / Property Set / Quantity Set catalogue
+- 🧪 Richer IFC type, material, classification and quantity semantics
+- 🧪 Spaces / Zones / Systems / Groups
+- 🧪 Roof / Stair / Ramp / Railing / Door / Window semantics
+- 🧪 Simplified georeferencing
+- 🧪 IFC material appearances and mapped representations
+- 🧪 External IFC unit / placement / mapped-item import improvements
+- 🧪 OpenTrace IFC round-trip metadata
+- 🧪 Reusable BIM libraries
+- 🧪 Experimental boundary-driven Membrane surface
+- 🧪 Python installer and multilingual manual-install package
 
-This snapshot is intentionally not promoted as the tested baseline until it passes real-world use.
+The release candidate is being validated against real IngeTrazo modelling, Bonsai/Blender IFC inspection and external IFC files before promotion to the published baseline.
 
 ## Next priorities
 
@@ -84,15 +87,21 @@ This snapshot is intentionally not promoted as the tested baseline until it pass
 - 🚧 Cleaner tessellation/soft-edge presentation
 - 🧭 Array/grid placement workflows
 
+### Membrane
+- 🧪 Boundary-driven smooth architectural surface
+- 🧪 Curved boundary controls and editable vertices
+- 🚧 Interior-control topology and robust freeform editing
+- 🚧 Undo / edit-state hardening
+
 ### Slabs
 - 🚧 More robust polygon offsets
 - 🧭 Additional hosted relationships
 - 🧭 richer floor/roof assembly presets
 
 ### Openings
-- 🚧 More hosted opening types
-- 🧭 Door/window semantic objects on top of hosted voids
-- 🧭 richer opening metadata and scheduling
+- 🚧 More hosted opening geometry/types
+- 🧪 IFC Door/Window semantic fills on hosted voids
+- 🚧 richer opening metadata and scheduling
 
 ### Resources / office libraries
 - 🚧 Exportable/importable wall and slab assemblies
@@ -102,10 +111,13 @@ This snapshot is intentionally not promoted as the tested baseline until it pass
 - 🧭 Resource bundles compatible with the proposed IngeTrazo Resource Library API
 
 ### BIM / interoperability
-- 🧭 IFC mapping for native OpenTrace BIM elements
-- 🧭 Quantities derived from parametric definitions
-- 🧭 Material and assembly takeoffs
-- 🧭 Object classification/property sets
+- 🧪 IFC mapping for native OpenTrace BIM elements
+- 🧪 Quantities and official Property/Quantity Set catalogue
+- 🧪 Material layer/profile/constituent structures
+- 🧪 Object classifications, systems, groups and zones
+- 🧪 Georeferencing and material appearances
+- 🚧 Validate external IFC scale/placement across Archicad, FreeCAD and other exporters
+- 🚧 Strengthen recognised-object conversion and round-trip identity/property preservation
 - 🧭 schedules and reports
 
 ## Host portability
