@@ -1,6 +1,6 @@
 # OpenTrace BIM — Feature Matrix
 
-This document separates the **current user-tested baseline** from work that exists only in the newer development snapshot.
+This document separates the **published user-tested baseline (0.11.1)** from the **0.12.8 release-candidate work** that is still receiving broader real-world validation.
 
 ## Walls
 
@@ -25,6 +25,8 @@ This document separates the **current user-tested baseline** from work that exis
 | Semantic layer functions/core | ✅ Tested |
 | Straight/mixed automatic junctions | ✅ Partial/tested cases |
 | Curve + curve / external T cleanup | 🚧 Active |
+| IFC wall type / lifecycle metadata | 🧪 0.12.8 RC |
+| Inclined-wall UV / total-height refinements | 🧪 0.12.8 RC — validation active |
 
 ## Slabs
 
@@ -64,6 +66,7 @@ This document separates the **current user-tested baseline** from work that exis
 | Local curvature on selected segment | ✅ Tested |
 | Insert segment vertex | ✅ Tested |
 | Grid/array placement | 🧭 Planned |
+| IFC profile/material usage metadata | 🧪 0.12.8 RC |
 
 ## Beams
 
@@ -79,6 +82,7 @@ This document separates the **current user-tested baseline** from work that exis
 | Horizontal curvature | ✅ Tested |
 | Vertical curvature | 🚧 Active |
 | Cleaner curved-mesh presentation | 🚧 Active |
+| IFC profile/material usage metadata | 🧪 0.12.8 RC |
 
 ## Complex Profiles
 
@@ -90,8 +94,8 @@ This document separates the **current user-tested baseline** from work that exis
 | Save reusable favourite | ✅ Tested |
 | Use in beam/column | ✅ Tested |
 | Embedded geometry snapshot in model | ✅ Tested |
-| Profile folders/categories | 🧪 0.11 snapshot |
-| Built-in structural catalogues | 🧪 0.11 snapshot |
+| Profile folders/categories | ✅ Implemented |
+| Built-in structural catalogues | ✅ Implemented |
 
 ## Layer Combinations
 
@@ -109,21 +113,46 @@ This document separates the **current user-tested baseline** from work that exis
 | First-run project template chooser | ✅ Tested |
 | Automatic geometry behavior based on groups | 🚧 Integration underway |
 
-## 0.11 development snapshot
+## BIM / IFC4 — 0.12.8 release candidate
 
-The 0.11 branch/package is a broader integration snapshot. It introduces:
+| Capability | Status |
+|---|---|
+| Persistent IFC GlobalIds / spatial hierarchy | 🧪 0.12.8 RC |
+| IFC export profiles | 🧪 0.12.8 RC |
+| Official IFC4 Pset / Qto catalogue | 🧪 0.12.8 RC |
+| IfcMaterialLayerSet | 🧪 0.12.8 RC |
+| IfcMaterialProfileSetUsage | 🧪 0.12.8 RC |
+| IfcMaterialConstituentSet | 🧪 0.12.8 RC |
+| BIM type / classification / appearance libraries | 🧪 0.12.8 RC |
+| Spaces / Zones / Systems / Groups semantics | 🧪 0.12.8 RC |
+| Roof / Stair / Ramp / Railing semantics | 🧪 0.12.8 RC |
+| Door / Window fill relationships | 🧪 0.12.8 RC |
+| Simplified georeferencing | 🧪 0.12.8 RC |
+| IfcRepresentationMap | 🧪 0.12.8 RC |
+| Open / Import / Link IFC | 🧪 0.12.8 RC |
+| External IFC units / placements / mapped items | 🧪 0.12.8 RC — validation active |
+| OpenTrace IFC round-trip metadata | 🧪 0.12.8 RC |
 
-- a single OpenTrace BIM side panel;
-- unified navigation for Walls / Slabs / Columns / Beams / Profiles;
-- revised icons;
-- initial wall and slab preset libraries;
-- concrete/timber structural presets;
-- steel profile catalogue work;
-- profile folders/categories;
-- larger built-in profile libraries;
-- stronger Layer Combinations integration.
+## Membrane — experimental
 
-It is **not yet the user-tested baseline**.
+| Capability | Status |
+|---|---|
+| Polygon / rectangle / ellipse creation | 🧪 0.12.8 RC |
+| Boundary-driven smooth surface | 🧪 0.12.8 RC |
+| Horizontal / vertical curved boundary controls | 🧪 0.12.8 RC |
+| Editable boundary vertices | 🧪 0.12.8 RC |
+| Interior control points | 🧪 0.12.8 RC — validation active |
+| Thickness / OpenTrace composition support | 🧪 0.12.8 RC |
+
+## 0.12.8 release-candidate integration
+
+- unified OpenTrace BIM panel and reusable composition editor;
+- English-only extension-owned UI for this public release;
+- BIM/IFC advanced editor and official IFC4 catalogue data;
+- reusable BIM libraries and relations;
+- expanded IFC import/export/round-trip foundation;
+- experimental Membrane object;
+- Python installer plus illustrated multilingual manual-install instructions.
 
 ## Planned platform reach
 
