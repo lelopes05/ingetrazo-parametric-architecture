@@ -1,0 +1,131 @@
+﻿OPEN TRACE BIM — INSTALL INSTRUCTIONS
+=====================================
+
+=======================================================================
+IMPORTANT — CHECK THE FOLDER AFTER EXTRACTING
+DO NOT LEAVE A DOUBLE OpenTrace_BIM FOLDER.
+
+CORRECT:
+...\ingetrazo\plugins\OpenTrace_BIM\__init__.py
+
+WRONG:
+...\ingetrazo\plugins\OpenTrace_BIM\OpenTrace_BIM\__init__.py
+=======================================================================
+
+The three images in this folder show the correct installation:
+01_OPEN_PLUGINS_FOLDER.png
+02_PLUGINS_FOLDER.png
+03_OPENTRACE_BIM_CONTENTS.png
+
+
+ENGLISH
+-------
+OPTION A — ONE-CLICK INSTALLER (Windows)
+1. Extract the downloaded ZIP to any normal folder, such as Downloads.
+2. Double-click INSTALL_OPENTRACE_BIM.bat next to the OpenTrace_BIM folder.
+3. The installer copies OpenTrace_BIM to the correct IngeTrazo plugins folder.
+4. Restart IngeTrazo.
+
+OPTION B — MANUAL INSTALLATION
+1. Open IngeTrazo.
+2. Go to Extensions > Open plugins folder. See image 01.
+3. Copy or drag the OpenTrace_BIM folder directly into the plugins folder. See image 02.
+4. Open OpenTrace_BIM and verify that __init__.py is directly inside it. See image 03.
+5. Restart IngeTrazo.
+
+IMPORTANT: Do not create OpenTrace_BIM\OpenTrace_BIM. If you see two folders
+with the same name nested inside each other, move the INNER folder one level up.
+
+To update: replace the existing OpenTrace_BIM folder with the new one, or run
+the installer again. The installer keeps one backup named OpenTrace_BIM_backup.
+
+
+FRANÇAIS
+--------
+OPTION A — INSTALLATEUR EN UN CLIC (Windows)
+1. Extrayez le ZIP téléchargé dans un dossier normal, par exemple Téléchargements.
+2. Double-cliquez sur INSTALL_OPENTRACE_BIM.bat à côté du dossier OpenTrace_BIM.
+3. L'installateur copie OpenTrace_BIM dans le dossier de plugins correct d'IngeTrazo.
+4. Redémarrez IngeTrazo.
+
+OPTION B — INSTALLATION MANUELLE
+1. Ouvrez IngeTrazo.
+2. Allez dans Extensions > Open plugins folder. Voir l'image 01.
+3. Copiez ou faites glisser le dossier OpenTrace_BIM directement dans le dossier plugins. Voir l'image 02.
+4. Ouvrez OpenTrace_BIM et vérifiez que __init__.py se trouve directement à l'intérieur. Voir l'image 03.
+5. Redémarrez IngeTrazo.
+
+IMPORTANT : ne créez pas OpenTrace_BIM\OpenTrace_BIM. Si deux dossiers du même
+nom sont imbriqués, déplacez le dossier INTÉRIEUR d'un niveau vers le haut.
+
+Pour mettre à jour : remplacez le dossier OpenTrace_BIM existant par le nouveau,
+ou relancez l'installateur. L'installateur conserve une sauvegarde appelée
+OpenTrace_BIM_backup.
+
+
+ESPAÑOL
+-------
+OPCIÓN A — INSTALADOR DE UN CLIC (Windows)
+1. Extrae el ZIP descargado en una carpeta normal, por ejemplo Descargas.
+2. Haz doble clic en INSTALL_OPENTRACE_BIM.bat junto a la carpeta OpenTrace_BIM.
+3. El instalador copia OpenTrace_BIM en la carpeta correcta de plugins de IngeTrazo.
+4. Reinicia IngeTrazo.
+
+OPCIÓN B — INSTALACIÓN MANUAL
+1. Abre IngeTrazo.
+2. Ve a Extensions > Open plugins folder. Consulta la imagen 01.
+3. Copia o arrastra la carpeta OpenTrace_BIM directamente dentro de plugins. Consulta la imagen 02.
+4. Abre OpenTrace_BIM y comprueba que __init__.py esté directamente dentro de ella. Consulta la imagen 03.
+5. Reinicia IngeTrazo.
+
+IMPORTANTE: no crees OpenTrace_BIM\OpenTrace_BIM. Si ves dos carpetas con el
+mismo nombre una dentro de otra, mueve la carpeta INTERIOR un nivel hacia arriba.
+
+Para actualizar: sustituye la carpeta OpenTrace_BIM existente por la nueva o
+ejecuta de nuevo el instalador. El instalador conserva una copia llamada
+OpenTrace_BIM_backup.
+
+
+PORTUGUÊS
+---------
+OPÇÃO A — INSTALADOR DE UM CLIQUE (Windows)
+1. Extraia o ZIP baixado em uma pasta normal, como Downloads.
+2. Dê dois cliques em INSTALL_OPENTRACE_BIM.bat, ao lado da pasta OpenTrace_BIM.
+3. O instalador copia OpenTrace_BIM para a pasta correta de plugins do IngeTrazo.
+4. Reinicie o IngeTrazo.
+
+OPÇÃO B — INSTALAÇÃO MANUAL
+1. Abra o IngeTrazo.
+2. Vá em Extensions > Open plugins folder. Veja a imagem 01.
+3. Copie ou arraste a pasta OpenTrace_BIM diretamente para dentro da pasta plugins. Veja a imagem 02.
+4. Abra OpenTrace_BIM e confirme que o arquivo __init__.py está diretamente dentro dela. Veja a imagem 03.
+5. Reinicie o IngeTrazo.
+
+IMPORTANTE: não deixe OpenTrace_BIM\OpenTrace_BIM. Se aparecerem duas pastas
+com o mesmo nome uma dentro da outra, mova a pasta DE DENTRO um nível para cima.
+
+Para atualizar: substitua a pasta OpenTrace_BIM existente pela nova ou execute
+o instalador novamente. O instalador mantém um backup chamado OpenTrace_BIM_backup.
+
+
+DEUTSCH
+-------
+OPTION A — EIN-KLICK-INSTALLATION (Windows)
+1. Entpacken Sie die heruntergeladene ZIP-Datei in einen normalen Ordner, z. B. Downloads.
+2. Doppelklicken Sie auf INSTALL_OPENTRACE_BIM.bat neben dem Ordner OpenTrace_BIM.
+3. Das Installationsprogramm kopiert OpenTrace_BIM in den richtigen IngeTrazo-Plugin-Ordner.
+4. Starten Sie IngeTrazo neu.
+
+OPTION B — MANUELLE INSTALLATION
+1. Öffnen Sie IngeTrazo.
+2. Gehen Sie zu Extensions > Open plugins folder. Siehe Bild 01.
+3. Kopieren oder ziehen Sie den Ordner OpenTrace_BIM direkt in den Plugin-Ordner. Siehe Bild 02.
+4. Öffnen Sie OpenTrace_BIM und prüfen Sie, dass __init__.py direkt darin liegt. Siehe Bild 03.
+5. Starten Sie IngeTrazo neu.
+
+WICHTIG: Erstellen Sie nicht OpenTrace_BIM\OpenTrace_BIM. Wenn zwei gleichnamige
+Ordner ineinander liegen, verschieben Sie den INNEREN Ordner eine Ebene nach oben.
+
+Zum Aktualisieren: Ersetzen Sie den vorhandenen OpenTrace_BIM-Ordner durch den
+neuen oder führen Sie das Installationsprogramm erneut aus. Das Installationsprogramm
+behält eine Sicherung mit dem Namen OpenTrace_BIM_backup.

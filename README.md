@@ -23,6 +23,8 @@ The tested build already covers a broad architectural modeling workflow. It is s
 
 See [FEATURES.md](FEATURES.md) for the detailed capability matrix and [ROADMAP.md](ROADMAP.md) for active development.
 
+For version-by-version changes see [CHANGELOG.md](CHANGELOG.md). The 0.12.9 release candidate is documented in [release notes](release-prep/0.12.9/RELEASE_NOTES.md) and the [technical audit](release-prep/0.12.9/AUDIT_SUMMARY.md); it is **not** the currently published build.
+
 ## Development previews
 
 <img width="1910" height="1031" alt="image" src="https://github.com/user-attachments/assets/0b05b4fa-0de4-4d39-89a7-569fba6abab1" />
