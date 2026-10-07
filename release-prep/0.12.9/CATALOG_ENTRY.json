@@ -1,0 +1,20 @@
+{
+  "id": "opentrace_bim",
+  "version": "0.12.9",
+  "author": "Leandro Lopes",
+  "author_url": "https://github.com/lelopes05",
+  "license": "GPL-3.0-or-later",
+  "repository": "https://github.com/lelopes05/opentrace-bim",
+  "download": "https://github.com/lelopes05/opentrace-bim/releases/download/v0.12.9/OpenTrace_BIM_0.12.9_UPDATE.zip",
+  "sha256": "5a9a3c67d0653efb912eef0cdd6309bb8ccbc8daa655a1c75e58a01349956607",
+  "ingetrazo": "0.5.7",
+  "tags": ["architecture", "bim", "structures", "productivity"],
+  "screenshot": "opentrace_bim.webp",
+  "name": {"es": "OpenTrace BIM", "en": "OpenTrace BIM", "pt": "OpenTrace BIM"},
+  "summary": {
+    "es": "BIM paramétrico para arquitectura: muros multicapa rectos y curvos, losas, pilares, vigas, huecos, datos IFC y flujos de interoperabilidad.",
+    "en": "Parametric BIM for architecture: straight and curved multilayer walls, slabs, columns, beams, openings, IFC data and interoperability workflows.",
+    "pt": "BIM paramétrico para arquitetura: paredes multicamadas retas e curvas, lajes, pilares, vigas, aberturas, dados IFC e fluxos de interoperabilidade."
+  },
+  "reviewed": false
+}
