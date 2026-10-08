@@ -1,0 +1,49 @@
+name: Package OpenTrace 0.12.9 for IngeTrazo catalog
+
+on:
+  push:
+    branches:
+      - packaging/catalog-0129
+
+permissions:
+  contents: write
+
+jobs:
+  publish-catalog-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify published 0.12.9 full plugin package
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o source-update.zip 'https://github.com/lelopes05/opentrace-bim/releases/download/v0.12.9/OpenTrace_BIM_0.12.9_UPDATE.zip'
+          echo '5a9a3c67d0653efb912eef0cdd6309bb8ccbc8daa655a1c75e58a01349956607  source-update.zip' | sha256sum -c -
+          python3 - <<'PY'
+          import ast, hashlib, shutil, zipfile
+          from pathlib import PurePosixPath
+          src = 'source-update.zip'
+          dest = 'OpenTrace_BIM_0.12.9_CATALOG.zip'
+          with zipfile.ZipFile(src) as z:
+              names = [i.filename for i in z.infolist() if not i.is_dir()]
+              assert len(names) > 30, 'Package contains too few files'
+              assert {n.split('/')[0] for n in z.namelist()} == {'OpenTrace_BIM'}, 'Only OpenTrace_BIM/ root is permitted'
+              assert all(not n.startswith('/') and '..' not in PurePosixPath(n).parts for n in names), 'Unsafe archive entries'
+              assert 'OpenTrace_BIM/__init__.py' in names, 'Missing plugin entrypoint'
+              assert 'OpenTrace_BIM/wall_tool.py' in names and 'OpenTrace_BIM/slab_ui.py' in names and 'OpenTrace_BIM/bim_ui.py' in names, 'Missing modeling tools'
+              main = z.read('OpenTrace_BIM/__init__.py').decode('utf-8')
+              assert '__version__ = "0.12.9"' in main, 'Unexpected plugin version'
+              assert 'def setup(app):' in main, 'Missing extension setup'
+              for name in names:
+                  if name.endswith('.py'):
+                      ast.parse(z.read(name).decode('utf-8'), filename=name)
+          shutil.copyfile(src, dest)
+          with zipfile.ZipFile(dest) as z:
+              assert z.testzip() is None, 'ZIP CRC check failed'
+          print('CATALOG PACKAGE VALID: one OpenTrace_BIM/ folder, full 0.12.9 code, Python AST parsed, ZIP CRC passed.')
+          print('SHA-256:', hashlib.sha256(open(dest, 'rb').read()).hexdigest())
+          PY
+      - name: Publish catalog-only package without changing existing assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v0.12.9 OpenTrace_BIM_0.12.9_CATALOG.zip --repo "$GITHUB_REPOSITORY"
