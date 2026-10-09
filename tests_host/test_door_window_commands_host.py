@@ -13,7 +13,7 @@ from OpenTrace_BIM.door_window_commands import (
     CreateHostedFill, EditHostedFill, reverse_hosted_door,
 )
 from OpenTrace_BIM.door_window_core import FillError
-from OpenTrace_BIM.model import DEFAULTS, make_wall_segment, read_wall
+from OpenTrace_BIM.model import DEFAULTS, WallError, make_wall_segment, read_wall
 
 
 def fixture(kind="window", **changes):
@@ -117,8 +117,10 @@ class HostedFillCommandTests(unittest.TestCase):
     def test_invalid_placement_rolls_back_wall_and_scene(self):
         scene, wall, spec = fixture(position=0.01, anchor="left")
         before = read_wall(wall)
-        command = CreateHostedFill(scene, wall, spec)
-        with self.assertRaises(FillError):
+        # The wall generator is allowed to reject it at command planning
+        # time, before anything touches the live document.
+        with self.assertRaises((FillError, WallError)):
+            command = CreateHostedFill(scene, wall, spec)
             command.do(scene)
         self.assertEqual(read_wall(wall), before)
         self.assertEqual(scene.groups, [wall])
