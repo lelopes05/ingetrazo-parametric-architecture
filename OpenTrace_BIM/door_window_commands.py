@@ -178,6 +178,8 @@ class EditHostedFill(Command):
                 staged.ext[KEY] = generated
                 staged.ifc = copy.deepcopy(self.group.ifc)
                 staged.ifc["name"] = self.spec["name"]
+                staged.ifc["overall_width"] = self.spec["width"]
+                staged.ifc["overall_height"] = self.spec["height"]
                 staged.name = self.spec["name"]
                 self.after = self._state(staged)
             self._apply(scene, self.after)
