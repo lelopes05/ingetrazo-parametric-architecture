@@ -270,11 +270,23 @@ class WallController(QObject):
         self.opening_fill.currentIndexChanged.connect(self.opening_changed);oform.addRow("Preenchimento IFC",self.opening_fill)
         self.polygon_label=QLabel("Abertura livre: edição por vértices",self.opening_widget)
         oform.addRow(self.polygon_label)
-        self.polygon_edit_btn=QToolButton(self.opening_widget)
-        self.polygon_edit_btn.setText("Editar vértices")
-        self.polygon_edit_btn.setToolTip("Selecionar e mover os vértices desta abertura livre.")
-        self.polygon_edit_btn.clicked.connect(self.edit_wall_polygon)
-        oform.addRow(self.polygon_edit_btn)
+        self.polygon_tools=QWidget(self.opening_widget)
+        polygon_row=QHBoxLayout(self.polygon_tools)
+        polygon_row.setContentsMargins(0,0,0,0)
+        polygon_row.setSpacing(4)
+        for symbol,description,operation in (
+            ("✥","Mover vértice","move_vertex"),
+            ("＋","Inserir vértice","insert_vertex"),
+            ("↔","Mover aresta","move_edge"),
+            ("−","Excluir vértice","delete_vertex"),
+        ):
+            btn=QToolButton(self.polygon_tools)
+            btn.setText(symbol)
+            btn.setToolTip(description + " da abertura livre")
+            btn.setFixedSize(32,32)
+            btn.clicked.connect(lambda _checked=False, mode=operation: self.edit_wall_polygon(mode))
+            polygon_row.addWidget(btn)
+        oform.addRow(self.polygon_tools)
         self.delete_opening_btn=QToolButton(self.opening_widget);set_symbol_icon(self.delete_opening_btn,"⊘",20);self.delete_opening_btn.setToolTip(t("Excluir esta abertura da parede."));self.delete_opening_btn.clicked.connect(self.delete_wall_opening);oform.addRow(t("Abertura hospedada"),self.delete_opening_btn)
         layout.addWidget(self.opening_widget);self.opening_widget.hide()
 
@@ -706,7 +718,7 @@ class WallController(QObject):
         activate_wall_polygon(self.app)
         self.app.viewport.setFocus()
 
-    def edit_wall_polygon(self):
+    def edit_wall_polygon(self, operation="move_vertex"):
         if self.target is None or not self._active_opening_id:
             return
         try:
@@ -717,7 +729,8 @@ class WallController(QObject):
                 raise WallError("Selecione uma abertura livre para editar.")
             origin = path_world(self.target)[0]
             self.polygon_tool.prepare(self.target, origin,
-                                      opening_id=self._active_opening_id)
+                                      opening_id=self._active_opening_id,
+                                      operation=operation)
             activate_wall_polygon(self.app)
             self.app.viewport.setFocus()
         except WallError as exc:
@@ -736,7 +749,7 @@ class WallController(QObject):
             if label is not None:
                 label.setVisible(not polygon)
         self.polygon_label.setVisible(polygon)
-        self.polygon_edit_btn.setVisible(polygon)
+        self.polygon_tools.setVisible(polygon)
         self.opening_fill.setEnabled(not polygon)
         try:
             for key,f in self.opening_fields.items():blocked.append((f,f.blockSignals(True)));f.setValue(float(item.get(key,0.0)))
