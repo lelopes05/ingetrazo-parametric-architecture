@@ -1,5 +1,34 @@
 # OpenTrace BIM
 
+## ❤️ OpenTrace BIM — Livre, gratuito e para todos!
+
+**100% GRATUITO. SEM ASSINATURAS. SEM VERSÃO PRO PAGA. SEM RECURSOS BLOQUEADOS.**
+
+O OpenTrace é seu! Use, modifique, compartilhe e trabalhe livremente.
+
+Queremos ajudar mais pessoas a trabalhar, conquistar oportunidades e melhorar de vida. E quem sabe ajudar também o vizinho, a comunidade, o cachorro, o papagaio... 🦜
+
+### ☕ Quer nos pagar um café?
+
+**SÓ DOE SE REALMENTE TIVER CONDIÇÕES FINANCEIRAS PARA ISSO!**
+
+Se esse dinheiro fizer falta para você ou sua família, fique com ele. Sério!
+
+Continuaremos melhorando o projeto sempre que possível e, se precisarmos encerrá-lo, buscaremos alternativas para garantir sua continuidade.
+
+### ❤️ O que pedimos em troca?
+
+Participe, divulgue, contribua com ideias e **MOSTRE PARA A GENTE O QUE VOCÊ ESTÁ MODELANDO!**
+
+Pedimos apenas que os créditos originais sejam preservados, conforme a licença.
+
+**O OpenTrace é livre, é completo e é seu. Agora vá construir alguma coisa incrível!**
+
+📖 **[Leia nosso manifesto completo](ABOUT.md).**
+
+---
+
+
 **Open-source parametric architecture for IngeTrazo — designed to grow beyond a single host.**
 
 > Formerly developed under the working names **IngeTrazo Architecture** / **Parametric Architecture**.
