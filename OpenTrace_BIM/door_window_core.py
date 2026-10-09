@@ -200,3 +200,40 @@ def window_mullions(raw):
          "bottom": spec["sill"], "top": spec["sill"]+spec["height"]}
         for i in range(1, spec["panes"])
     ]
+
+
+def reanchor_fill(raw, anchor):
+    """Select left/center/right anchor without physically moving the fill.
+
+    Only the representation of the station changes, never the two endpoints.
+    """
+    spec = normalize_fill(raw)
+    target = str(anchor).lower()
+    if target not in ANCHORS:
+        raise FillError("Âncora inválida.")
+    left, right = station_span(spec)
+    spec["anchor"] = target
+    spec["position"] = {"left": left, "center": (left+right)/2,
+                        "right": right}[target]
+    return normalize_fill(spec)
+
+
+def edit_from_hotspot(raw, point_id, action, value):
+    """Apply a radial-handle operation, preserving all stable IDs.
+
+    Width/height values are full dimensions in metres; position is the NEW
+    station of the selected lower hotspot in the wall's reference frame.
+    Permission checks live here, not just in the presentation layer.
+    """
+    spec = normalize_fill(raw)
+    hit = next((p for p in hotspots(spec) if p["id"] == point_id), None)
+    if hit is None or action not in hit["controls"]:
+        raise FillError("Operação não permitida neste hotspot.")
+    measure = _number(value, str(action))
+    if action == "position":
+        spec["position"] += measure-hit["station"]
+    elif action == "width":
+        spec["width"] = measure
+    elif action == "height":
+        spec["height"] = measure
+    return normalize_fill(spec)
