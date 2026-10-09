@@ -5,6 +5,7 @@ import unittest
 from OpenTrace_BIM.door_window_core import (
     FillError, normalize_fill, station_span, reverse_swing,
     opening_request, hotspots, door_leaf_plan, window_mullions,
+    reanchor_fill, edit_from_hotspot,
 )
 
 
@@ -102,6 +103,32 @@ class DoorWindowCoreTests(unittest.TestCase):
         self.assertEqual(flipped["swing"], -1)
         self.assertEqual(result["source_id"], spec["id"])
         self.assertEqual(result["position"], 2.45)
+
+    def test_reanchor_keeps_physical_opening_station_range(self):
+        start = normalize_fill(window(anchor="left", width=1.2))
+        for anchor in ("center", "right", "left"):
+            updated = reanchor_fill(start, anchor)
+            self.assertEqual(station_span(updated), station_span(start))
+            self.assertEqual(updated["anchor"], anchor)
+            self.assertEqual(updated["id"], start["id"])
+
+    def test_radial_hotspot_permission_is_validated_in_engine(self):
+        spec = door(anchor="center", width=.9, height=2.1)
+        moved = edit_from_hotspot(spec, "bottom-left", "position", "3,0")
+        self.assertAlmostEqual(station_span(moved)[0], 3.0)
+        wider = edit_from_hotspot(spec, "top-center", "width", "1,20")
+        self.assertAlmostEqual(wider["width"], 1.2)
+        taller = edit_from_hotspot(spec, "top-right", "height", 2.4)
+        self.assertAlmostEqual(taller["height"], 2.4)
+        self.assertAlmostEqual(taller["sill"], spec.get("sill", 0.0))
+        for point, action in (
+                ("top-left", "position"),
+                ("bottom-right", "height"),
+                ("not-a-hotspot", "width")):
+            with self.subTest(point=point, action=action):
+                with self.assertRaises(FillError):
+                    edit_from_hotspot(spec, point, action, 1.0)
+
 
 
 if __name__ == "__main__":
