@@ -77,11 +77,14 @@ def normalize_wall_openings(raw, length, height):
             raise WallError("Largura livre e altura da abertura devem ser positivas.")
         if not MIN_DIM < pos < length-MIN_DIM:
             raise WallError("A abertura precisa ficar entre os extremos da parede.")
-        z0=sill; z1=sill+oh
-        # Hosted openings still keep a small strip above/below. Doors and
-        # top-cut openings can reuse the same host API in a later pass.
-        if z0 <= MIN_DIM or z1 >= height-MIN_DIM:
-            raise WallError("Nesta versão, a abertura precisa ficar acima da base e abaixo do topo da parede.")
+        # Doors may touch the wall base, and a nominal door taller than the
+        # local wall must not delete the wall. The generator clips the head
+        # at the available local top. Keep openings beginning above the
+        # wall top invalid: they would not intersect this host at all.
+        if not all(math.isfinite(v) for v in (pos, width, sill, oh)):
+            raise WallError("Abertura da parede contém medidas não finitas.")
+        if sill < 0 or sill >= height-MIN_DIM:
+            raise WallError("O peitoril da abertura deve iniciar dentro da parede.")
         norm={"id":str(item.get("id") or f"wall-opening-{i+1}"),"kind":"rect","position":pos,"width":width,"sill":sill,"height":oh,"source_id":item.get("source_id"),"ifc_global_id":item.get("ifc_global_id")}
         if isinstance(item.get("fill"),dict): norm["fill"]=copy.deepcopy(item["fill"])
         elif item.get("fill_class") or item.get("ifc_fill_class"):
@@ -787,6 +790,12 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
     L = ref_cum[-1]
     cuts = {0.0, L}; cuts.update(ref_cum)
     for o in ops: cuts.update((o["s0"], o["s1"]))
+    # Split additional stations where a sloped wall crosses an opening's
+    # head or sill. Without them, a strip could be cut only on one side,
+    # leaving dangling top/bottom polygons in the visible opening.
+    from .opening_profile import opening_slice, profile_crossings
+    cuts.update(profile_crossings(
+        L, p["base_profile"], p["top_profile"], ops))
     ss = sorted(max(0.0, min(L, float(v))) for v in cuts)
     clean = []
     for v in ss:
@@ -799,7 +808,18 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
     mesh = Mesh()
 
     def face(points, key):
-        f = mesh.add_face(points)
+        # At the exact meeting station of a sloped head/top profile,
+        # an otherwise quadrilateral wall band degenerates to a triangle.
+        # Remove coincident adjacent corners before handing it to the mesh.
+        clean = []
+        for pt in points:
+            if not clean or (pt-clean[-1]).length() > 1.0e-8:
+                clean.append(pt)
+        if len(clean) > 1 and (clean[0]-clean[-1]).length() <= 1.0e-8:
+            clean.pop()
+        if len(clean) < 3:
+            return None
+        f = mesh.add_face(clean)
         f.attrs[FACE_KEY] = key
         return f
 
@@ -819,20 +839,32 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
           QVector3D(low_t[-1].x(), low_t[-1].y(), top_z[-1])], "end")
 
     for i, (sa, sb) in enumerate(zip(ss, ss[1:])):
-        if sb-sa <= 1.0e-10: continue
-        # Lower and upper skins across the thickness.
-        face([QVector3D(high_b[i].x(), high_b[i].y(), base_z[i]),
-              QVector3D(high_b[i+1].x(), high_b[i+1].y(), base_z[i+1]),
-              QVector3D(low_b[i+1].x(), low_b[i+1].y(), base_z[i+1]),
-              QVector3D(low_b[i].x(), low_b[i].y(), base_z[i])], "bottom")
-        face([QVector3D(low_t[i].x(), low_t[i].y(), top_z[i]),
-              QVector3D(low_t[i+1].x(), low_t[i+1].y(), top_z[i+1]),
-              QVector3D(high_t[i+1].x(), high_t[i+1].y(), top_z[i+1]),
-              QVector3D(high_t[i].x(), high_t[i].y(), top_z[i])], "top")
-
+        if sb-sa <= 1.0e-10:
+            continue
         sm = (sa+sb)*0.5
-        active = [o for o in ops if o["s0"] < sm < o["s1"]]
-        if not active:
+        mb, mt, _ = _profile_z_at(p, sm, L)
+        active = [
+            o for o in ops
+            if o["s0"] < sm < o["s1"]
+            and opening_slice(mt-mb, o["sill"], o["height"])["cut"]
+        ]
+        # Opening spans do not overlap, so there is at most one active cut.
+        opening = active[0] if active else None
+        layout = opening_slice(mt-mb, opening["sill"], opening["height"]) if opening else None
+        # A floor-to-ceiling cut must NOT retain a full-width bottom/top
+        # skin crossing the opening: those created visible stray edges.
+        if layout is None or layout["below"]:
+            face([QVector3D(high_b[i].x(), high_b[i].y(), base_z[i]),
+                  QVector3D(high_b[i+1].x(), high_b[i+1].y(), base_z[i+1]),
+                  QVector3D(low_b[i+1].x(), low_b[i+1].y(), base_z[i+1]),
+                  QVector3D(low_b[i].x(), low_b[i].y(), base_z[i])], "bottom")
+        if layout is None or layout["above"]:
+            face([QVector3D(low_t[i].x(), low_t[i].y(), top_z[i]),
+                  QVector3D(low_t[i+1].x(), low_t[i+1].y(), top_z[i+1]),
+                  QVector3D(high_t[i+1].x(), high_t[i+1].y(), top_z[i+1]),
+                  QVector3D(high_t[i].x(), high_t[i].y(), top_z[i])], "top")
+
+        if opening is None:
             face([QVector3D(low_b[i].x(), low_b[i].y(), base_z[i]),
                   QVector3D(low_b[i+1].x(), low_b[i+1].y(), base_z[i+1]),
                   QVector3D(low_t[i+1].x(), low_t[i+1].y(), top_z[i+1]),
@@ -843,45 +875,61 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
                   QVector3D(high_t[i+1].x(), high_t[i+1].y(), top_z[i+1])], "side")
             continue
 
-        # Openings do not overlap, so there is at most one active opening in a
-        # longitudinal strip.  Sill/head follow the local lower profile.
-        o = active[0]
-        z0a = base_z[i] + o["sill"]; z0b = base_z[i+1] + o["sill"]
-        z1a = z0a + o["height"]; z1b = z0b + o["height"]
-        if z1a >= top_z[i]-MIN_DIM or z1b >= top_z[i+1]-MIN_DIM:
-            raise WallError("A abertura ultrapassa o topo local desta parede.")
-        # Below opening.
-        face([QVector3D(low_b[i].x(), low_b[i].y(), base_z[i]),
-              QVector3D(low_b[i+1].x(), low_b[i+1].y(), base_z[i+1]),
-              side_at(i+1,"low",z0b), side_at(i,"low",z0a)], "side")
-        face([QVector3D(high_b[i+1].x(), high_b[i+1].y(), base_z[i+1]),
-              QVector3D(high_b[i].x(), high_b[i].y(), base_z[i]),
-              side_at(i,"high",z0a), side_at(i+1,"high",z0b)], "side")
-        # Above opening.
-        face([side_at(i,"low",z1a), side_at(i+1,"low",z1b),
-              QVector3D(low_t[i+1].x(), low_t[i+1].y(), top_z[i+1]),
-              QVector3D(low_t[i].x(), low_t[i].y(), top_z[i])], "side")
-        face([side_at(i+1,"high",z1b), side_at(i,"high",z1a),
-              QVector3D(high_t[i].x(), high_t[i].y(), top_z[i]),
-              QVector3D(high_t[i+1].x(), high_t[i+1].y(), top_z[i+1])], "side")
+        z0a = base_z[i] + opening["sill"]
+        z0b = base_z[i+1] + opening["sill"]
+        z1a = min(top_z[i], z0a + opening["height"])
+        z1b = min(top_z[i+1], z0b + opening["height"])
+        if layout["below"]:
+            face([QVector3D(low_b[i].x(), low_b[i].y(), base_z[i]),
+                  QVector3D(low_b[i+1].x(), low_b[i+1].y(), base_z[i+1]),
+                  side_at(i+1, "low", z0b), side_at(i, "low", z0a)], "side")
+            face([QVector3D(high_b[i+1].x(), high_b[i+1].y(), base_z[i+1]),
+                  QVector3D(high_b[i].x(), high_b[i].y(), base_z[i]),
+                  side_at(i, "high", z0a), side_at(i+1, "high", z0b)], "side")
+        if layout["above"]:
+            face([side_at(i, "low", z1a), side_at(i+1, "low", z1b),
+                  QVector3D(low_t[i+1].x(), low_t[i+1].y(), top_z[i+1]),
+                  QVector3D(low_t[i].x(), low_t[i].y(), top_z[i])], "side")
+            face([side_at(i+1, "high", z1b), side_at(i, "high", z1a),
+                  QVector3D(high_t[i].x(), high_t[i].y(), top_z[i]),
+                  QVector3D(high_t[i+1].x(), high_t[i+1].y(), top_z[i+1])], "side")
 
-    # Jambs + sill/head reveals.
-    index = {round(v,10):i for i,v in enumerate(ss)}
+    # Jambs and horizontal reveals exist only on portions of the cut that
+    # still intersect the host wall. A bottom-attached door has no sill
+    # cover; an opening above the host has no head cover.
+    index = {round(v, 10): i for i, v in enumerate(ss)}
     for o in ops:
-        i0=index.get(round(o["s0"],10)); i1=index.get(round(o["s1"],10))
-        if i0 is None or i1 is None: continue
-        for idx, rev in ((i0,False),(i1,True)):
-            z0=base_z[idx]+o["sill"]; z1=z0+o["height"]
-            pts=[side_at(idx,"low",z0), side_at(idx,"high",z0),
-                 side_at(idx,"high",z1), side_at(idx,"low",z1)]
-            face(list(reversed(pts)) if rev else pts,"opening")
-        for i in range(i0,i1):
-            z0a=base_z[i]+o["sill"]; z0b=base_z[i+1]+o["sill"]
-            z1a=z0a+o["height"]; z1b=z0b+o["height"]
-            face([side_at(i,"low",z0a),side_at(i+1,"low",z0b),
-                  side_at(i+1,"high",z0b),side_at(i,"high",z0a)],"opening")
-            face([side_at(i,"high",z1a),side_at(i+1,"high",z1b),
-                  side_at(i+1,"low",z1b),side_at(i,"low",z1a)],"opening")
+        i0 = index.get(round(o["s0"], 10))
+        i1 = index.get(round(o["s1"], 10))
+        if i0 is None or i1 is None:
+            continue
+        for idx, rev in ((i0, False), (i1, True)):
+            span = opening_slice(top_z[idx]-base_z[idx], o["sill"], o["height"])
+            if not span["cut"]:
+                continue
+            z0 = base_z[idx] + o["sill"]
+            z1 = min(top_z[idx], z0 + o["height"])
+            if z1-z0 <= 1.0e-8:
+                continue
+            pts = [side_at(idx, "low", z0), side_at(idx, "high", z0),
+                   side_at(idx, "high", z1), side_at(idx, "low", z1)]
+            face(list(reversed(pts)) if rev else pts, "opening")
+        for i in range(i0, i1):
+            sm = (ss[i]+ss[i+1])*0.5
+            mb, mt, _ = _profile_z_at(p, sm, L)
+            span = opening_slice(mt-mb, o["sill"], o["height"])
+            if not span["cut"]:
+                continue
+            z0a = base_z[i] + o["sill"]
+            z0b = base_z[i+1] + o["sill"]
+            z1a = min(top_z[i], z0a + o["height"])
+            z1b = min(top_z[i+1], z0b + o["height"])
+            if span["below"]:
+                face([side_at(i, "low", z0a), side_at(i+1, "low", z0b),
+                      side_at(i+1, "high", z0b), side_at(i, "high", z0a)], "opening")
+            if span["above"]:
+                face([side_at(i, "high", z1a), side_at(i+1, "high", z1b),
+                      side_at(i+1, "low", z1b), side_at(i, "low", z1a)], "opening")
 
     if previous is not None:
         transfer_semantic_face_appearance(previous.mesh, mesh, FACE_KEY,
