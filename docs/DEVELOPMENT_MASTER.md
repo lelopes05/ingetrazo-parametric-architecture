@@ -38,7 +38,7 @@
 | Etapa atual | Escopo | Estado verificado / referência histórica |
 |---|---|---|
 | 00 | Fundação técnica, contratos e testes | Preparada no PR #3; ainda não mesclada na main |
-| **01** | **Aberturas de paredes:** retângulos no piso/topo, abertura livre poligonal, edição por vértices/arestas, paredes curvas e malha sem arestas indevidas | **Prioridade imediata.** PR #5 (antigo bloco 05A) em implementação experimental; ainda sem testes de runtime |
+| **01** | **Aberturas de paredes:** retângulos no piso/topo, abertura livre poligonal, edição por vértices/arestas, paredes curvas e malha sem arestas indevidas | **Código experimental + UI inicial no PR #5.** Testes puros/compilação passam em CI; avaliação de runtime, malha e cortes pendente |
 | **02** | **Portas e janelas paramétricas:** objetos de preenchimento, uma porta de abrir e uma janela, âncoras esquerda/centro/direita, inversão de giro, hotspots/paleta radial, IFC | **Próxima prioridade, depende da 01.** Antigo bloco 05B; não implementado |
 | 03 | Integração de criação/edição de aberturas, portas e janelas à paleta | Pendente; depende da geometria e dos objetos das etapas 01–02 |
 | 04 | Interface geral: barra de criação, menus, Informações do Projeto, manual, Sobre, alinhamento/distribuição X/Y/Z | Parcial em PRs #4 e #6, ambos não mesclados; podem evoluir em paralelo sem conflitar com 01 |
@@ -96,3 +96,13 @@
 - A numeração histórica 05A/05B deixou de representar a ordem de execução. **Ordem vigente: 01 aberturas → 02 portas/janelas → 03 integração às paletas → 04 interface geral → 05 vistas → 06 representação 2D/tramas → 07 Compositor/IFC e consolidação.** A fundação é etapa 00.
 - PRs não foram renumerados nem mesclados; o PR #5 ainda reúne a frente de aberturas e o PR #3 mantém a base contratual. Os nomes antigos só ficam para rastreabilidade dos commits anteriores.
 - Esta atualização altera somente o documento mestre na branch experimental de aberturas; nenhuma mudança no release 0.12.9 ou no catálogo.
+
+## Retomada ativa — Etapa 01 (2026-10-09)
+
+- **Desenvolvimento efetivo no PR #5**, branch `dev/wall-openings-2026-10-09`, sem alterar main, release público 0.12.9 ou catálogo.
+- **Ferramenta nova:** `OpenTrace_BIM/wall_polygon_tool.py` (commit `d7868f8`) desenha abertura poligonal com cliques e fechamento no primeiro vértice. Projeta os pontos no sistema local distância/altura de parede reta ou curva. Só confirma com `EditWall` e o histórico do host; cancelar não altera a parede.
+- **Conexão à interface:** `host.py` (`82b63fe`); `ui.py` (`0828686` e `bea750c`), com botão `⬡` na paleta contextual da parede e controles específicos na paleta lateral para mover/inserir/excluir vértices e mover arestas. Campos de retângulos ficam ocultos para não sobrescrever polígonos.
+- **Operações geométricas novas:** `wall_polygon.py` (`82e76f1`): `insert_vertex`, `move_vertex`, `move_edge`, `delete_vertex`, revalidadas contra degeneração e auto-interseção. Gesto interativo em `wall_polygon_tool.py` (`6397172`); testes adicionais em `tests/test_wall_polygon.py` (`31c4de2`).
+- **Validação automática real nesta retomada:** workflow `.github/workflows/test-wall-openings.yml` (commit `3b0d62a`) criado para rodar `python -m unittest discover -s tests -v` e `python -m compileall -q OpenTrace_BIM`. GitHub Actions [run 37974548958](https://github.com/lelopes05/opentrace-bim/actions/runs/37974548958), head `31c4de2`, **success**: etapa de testes unitários passou e compilação de módulos Python passou. São 29 testes definidos (10 contratos + 6 perfis + 13 poligonais); essa validação NÃO carrega PySide6, host nem malha real.
+- **Estado correto:** código de criação e edição da abertura livre existe na branch, mas **NÃO validado no IngeTrazo**; não anunciar como concluído. Pendências: confirmar projeção na parede curva pela viewport real, contornos e faces sem arestas indesejadas (incluindo inclinadas, multicamadas e junções), seleção/UX, Undo/Redo, salvar/reabrir `.igz`, IFC com aberturas e compatibilidade de obras antigas. Editor de arcos/chanfro/fillet da abertura livre também não está concluído.
+- **Próximo gate:** conferir a operação 01 visualmente no IngeTrazo após corrigir eventuais falhas de runtime; em seguida iniciar **Etapa 02: porta de abrir + janela paramétrica** com `source_id` e hotspots sem confundir modelo paramétrico com mera classificação IFC.
