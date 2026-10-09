@@ -40,14 +40,28 @@ class BimController:
         title = QLabel("<b style='font-size:14pt'>BIM / IFC</b><br><span style='color:#777'>Semântica openBIM sobre a geometria paramétrica do OpenTrace.</span>")
         title.setWordWrap(True); root.addWidget(title)
 
+        # Project information is one separate page in the master sidebar.
+        # The same fields and document record remain authoritative for IFC.
+        self.project_panel = QWidget()
+        project_root = QVBoxLayout(self.project_panel)
+        project_root.setContentsMargins(10, 10, 10, 10)
+        project_root.setSpacing(9)
+        project_heading = QLabel("<b style='font-size:14pt'>Informações do Projeto</b>")
+        project_root.addWidget(project_heading)
         project_box = QFrame(); project_box.setFrameShape(QFrame.StyledPanel)
         form = QFormLayout(project_box); form.setContentsMargins(8, 8, 8, 8); form.setSpacing(6)
         self.project_name = QLineEdit(); self.site_name = QLineEdit(); self.building_name = QLineEdit()
         self.author = QLineEdit(); self.organization = QLineEdit(); self.description = QLineEdit()
-        form.addRow("Projeto", self.project_name); form.addRow("Terreno", self.site_name)
-        form.addRow("Edifício", self.building_name); form.addRow("Autor", self.author)
-        form.addRow("Organização", self.organization); form.addRow("Descrição", self.description)
-        root.addWidget(project_box)
+        self.client = QLineEdit(); self.location = QLineEdit()
+        form.addRow("Projeto", self.project_name); form.addRow("Cliente", self.client)
+        form.addRow("Localização", self.location); form.addRow("Descrição", self.description)
+        form.addRow("Terreno IFC", self.site_name); form.addRow("Edifício IFC", self.building_name)
+        form.addRow("Autor", self.author); form.addRow("Organização", self.organization)
+        project_root.addWidget(project_box)
+        self.project_levels_summary = QLabel()
+        self.project_levels_summary.setWordWrap(True)
+        project_root.addWidget(self.project_levels_summary)
+        project_root.addStretch(1)
 
         options = QFrame(); options.setFrameShape(QFrame.StyledPanel)
         opt = QVBoxLayout(options); opt.setContentsMargins(8, 8, 8, 8); opt.setSpacing(5)
@@ -119,7 +133,7 @@ class BimController:
         self.status.setWordWrap(True); self.status.setStyleSheet("color:#666;"); root.addWidget(self.status)
         root.addStretch(1)
 
-        for edit in (self.project_name, self.site_name, self.building_name, self.author, self.organization, self.description):
+        for edit in (self.project_name, self.client, self.location, self.site_name, self.building_name, self.author, self.organization, self.description):
             edit.editingFinished.connect(self.save)
         for check in (self.psets, self.layers, self.openings, self.quantities, self.styles, self.roundtrip, self.repmaps):
             check.toggled.connect(self.save)
@@ -158,12 +172,21 @@ class BimController:
         project = self.data.get("project", {})
         export = self.data.get("export", {})
         mapping = (
-            (self.project_name, project.get("name", "")), (self.site_name, project.get("site", "")),
+            (self.project_name, project.get("name", "")), (self.client, project.get("client", "")),
+            (self.location, project.get("location", "")), (self.site_name, project.get("site", "")),
             (self.building_name, project.get("building", "")), (self.author, project.get("author", "")),
             (self.organization, project.get("organization", "")), (self.description, project.get("description", "")),
         )
         for widget, value in mapping:
             old = widget.blockSignals(True); widget.setText(str(value or "")); widget.blockSignals(old)
+        try:
+            from .levels import available_levels
+            level_names = [lv["name"] for lv in available_levels(self.app)]
+            self.project_levels_summary.setText(
+                "Pavimentos vinculados aos Níveis: " + (", ".join(level_names) if level_names else "nenhum nível cadastrado")
+            )
+        except Exception:
+            self.project_levels_summary.setText("Pavimentos: dados de níveis indisponíveis.")
         old=self.export_profile.blockSignals(True);idx=self.export_profile.findData(str(export.get("profile") or "bonsai"));self.export_profile.setCurrentIndex(idx if idx>=0 else 0);self.export_profile.blockSignals(old)
         for widget, key in ((self.psets, "include_property_sets"), (self.layers, "include_material_layers"), (self.openings, "include_opening_relations"), (self.quantities, "include_quantities"), (self.styles,"include_styles"),(self.roundtrip,"include_parametric_roundtrip"),(self.repmaps,"use_representation_maps")):
             old = widget.blockSignals(True); widget.setChecked(bool(export.get(key, True))); widget.blockSignals(old)
@@ -249,11 +272,20 @@ class BimController:
         self.refresh_selected()
 
     def save(self, *_):
-        self.data["project"] = {
-            "name": self.project_name.text().strip(), "site": self.site_name.text().strip(),
-            "building": self.building_name.text().strip(), "author": self.author.text().strip(),
-            "organization": self.organization.text().strip(), "description": self.description.text().strip(),
-        }
+        # Merge instead of replacing the whole record: unknown project
+        # fields from a future release or imported BIM remain preserved.
+        project = dict(self.data.get("project") or {})
+        project.update({
+            "name": self.project_name.text().strip(),
+            "client": self.client.text().strip(),
+            "location": self.location.text().strip(),
+            "site": self.site_name.text().strip(),
+            "building": self.building_name.text().strip(),
+            "author": self.author.text().strip(),
+            "organization": self.organization.text().strip(),
+            "description": self.description.text().strip(),
+        })
+        self.data["project"] = project
         self.data["export"] = {
             "schema": "IFC4", "profile": self.export_profile.currentData() or "bonsai", "include_property_sets": self.psets.isChecked(),
             "include_material_layers": self.layers.isChecked(),
