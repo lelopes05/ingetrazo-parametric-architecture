@@ -46,6 +46,7 @@ MOVE_VERTEX_CONTINUE_TOOL_KEY = "arquitetura_parametrica_move_vertex_continue"
 WALL_STATION_Z_TOOL_KEY = "arquitetura_parametrica_wall_station_z"
 WALL_LEAN_TOOL_KEY = "arquitetura_parametrica_wall_lean"
 WALL_OPENING_TOOL_KEY = "arquitetura_parametrica_wall_opening"
+WALL_POLYGON_TOOL_KEY = "arquitetura_parametrica_wall_polygon"
 
 
 def require_reference_host(app):
@@ -140,6 +141,9 @@ def activate_wall_lean(app):
 
 def activate_wall_opening(app):
     activate_tool(app, WALL_OPENING_TOOL_KEY)
+
+def activate_wall_polygon(app):
+    activate_tool(app, WALL_POLYGON_TOOL_KEY)
 
 
 def activate_select(app):
