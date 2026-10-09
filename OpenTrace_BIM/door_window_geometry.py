@@ -117,7 +117,11 @@ def make_fill_group(raw, *, wall_thickness=0.10):
         }
     }
     group.ifc = {"class": "IfcDoor" if spec["kind"] == "door"
-                 else "IfcWindow", "name": spec["name"]}
+                 else "IfcWindow", "name": spec["name"],
+                 "overall_width": spec["width"],
+                 "overall_height": spec["height"]}
+    if spec.get("ifc_global_id"):
+        group.ifc["global_id"] = spec["ifc_global_id"]
     return group
 
 
@@ -148,9 +152,12 @@ def place_fill_on_wall(raw, wall_group):
         raise FillError("O vão não está associado a esta porta ou janela.")
     if opening.get("kind") != "rect":
         raise FillError("O objeto paramétrico básico exige vão retangular.")
-    if abs(opening["width"]-spec["width"]) > 1.0e-5 or abs(
-            opening["height"]-spec["height"]) > 1.0e-5:
-        raise FillError("As dimensões da esquadria devem acompanhar o vão.")
+    from .door_window_core import center_station
+    if (abs(opening["width"]-spec["width"]) > 1.0e-5
+            or abs(opening["height"]-spec["height"]) > 1.0e-5
+            or abs(opening["sill"]-spec["sill"]) > 1.0e-5
+            or abs(opening["position"]-center_station(spec)) > 1.0e-5):
+        raise FillError("Posição, peitoril e dimensões da esquadria devem acompanhar o vão.")
 
     points, cumulative = _path_cumulative(path_world(wall_group))
     L = cumulative[-1]
