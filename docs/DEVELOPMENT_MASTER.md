@@ -40,7 +40,7 @@
 | 02 | Alinhar/distribuir X/Y/Z | Patch anterior, ainda não integrado à `main` |
 | 03 | Cenas, plantas por pavimento, vistas/cortes | Barra de vistas em patch; cenas automáticas pendentes |
 | 04 | Escalas, cotas e símbolos 2D na viewport | Especificado, não implementado |
-| 05A | Aberturas livres e hospedadas sem arestas residuais | Prioritário; gerador da parede ainda limitado |
+| 05A | Aberturas livres e hospedadas sem arestas residuais | **Parcial experimental:** retângulos podem alcançar o piso/topo; faces inferiores/superiores atravessando cortes foram condicionadas; polígonos livres e teste real pendentes |
 | 05B | Porta de giro e janela paramétricas | Prioritário, depende de 05A |
 | 06 | Tramas vetoriais por material/camada | Contrato preparado; renderizador/editor pendentes |
 | 07 | Compositor, IFC, round-trip e testes de regressão | Consolidação pendente |
@@ -68,3 +68,11 @@
 7. Antes de terminar cada conversa, registrar status **verificado**, arquivos, testes, branch/commit, questões pendentes e próxima ação neste documento.
 
 **Prompt de retomada:** Leia `docs/DEVELOPMENT_MASTER.md` na branch de desenvolvimento atual de `lelopes05/opentrace-bim`; confira GitHub e os testes antes de continuar. Não publique/empacote sem autorização. Desenvolva primeiro 01 e 02 e em paralelo 05A, mantendo este registro atualizado.
+
+## Atualização da frente 05A — 2026-10-09
+
+- Branch `dev/wall-openings-2026-10-09`, independente da branch 01. `opening_profile.py` (planejamento numérico com teste) e `model.py` (primeira alteração experimental do gerador de vãos retangulares), `tests/test_opening_profile.py`.
+- **Validado localmente:** 6 testes puros de cortes com porta no piso, porta mais alta que parede, janela normal, janela sem interseção, topo inclinado e ausência de cruzamento; juntamente com os 10 testes de contratos, 16 testes passaram no ambiente de preparação.
+- **Ainda NÃO validado:** execução da malha `model.py` no IngeTrazo, verificação visual das faces/arestas, paredes curvas e inclinadas, junções, composições multicamadas, IFC e salvar/reabrir `.igz`.
+- **Ainda NÃO implementado:** aberturas livres poligonais editáveis por vértices/arestas em paredes, porta de giro e janela paramétrica. Não anunciar a nova capacidade no painel até validação e teste.
+- Antes de mesclar, revisar a geometria com o IngeTrazo e testar se o contorno fica totalmente limpo inclusive em vistas com corte.
