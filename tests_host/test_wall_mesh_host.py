@@ -73,10 +73,15 @@ class WallMeshRuntimeTests(unittest.TestCase):
         length = sum((b-a).length() for a,b in zip(path, path[1:]))
         opening = {"id": "curved-poly", "kind": "polygon",
                    "polygon": [[.8, .5], [1.8, .5], [1.8, 2], [.8, 2]]}
-        p = wall([opening], length=length)
-        mesh = build_body(p, path=path).mesh
-        self.assertGreater(len(mesh.faces), 10)
-        self.assertEqual(nonmanifold_edges(mesh), [])
+        p = wall([opening], length=length, structure="composite", layers=[
+            {"id": "core-test", "name": "Bloco", "role": "core", "thickness": .10},
+            {"id": "finish-test", "name": "Revestimento", "role": "finish", "thickness": .02},
+        ])
+        children = build_children(p, path=path)
+        self.assertEqual(len(children), 2)
+        for child in children:
+            self.assertGreater(len(child.mesh.faces), 10)
+            self.assertEqual(nonmanifold_edges(child.mesh), [])
 
     def test_sloping_wall_polygon_clips_to_local_top(self):
         opening = {"id": "top", "kind": "polygon",
