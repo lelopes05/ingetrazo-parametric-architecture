@@ -119,3 +119,65 @@ def make_fill_group(raw, *, wall_thickness=0.10):
     group.ifc = {"class": "IfcDoor" if spec["kind"] == "door"
                  else "IfcWindow", "name": spec["name"]}
     return group
+
+
+def place_fill_on_wall(raw, wall_group):
+    """Create an uninserted fill object aligned with an existing hosted void.
+
+    Call only after an opening request with the same source_id was committed
+    to the wall through EditWall. This does not touch the wall or scene.
+    Real hosted walls supply a world-space reference path and local elevation.
+    """
+    from .door_window_core import station_span
+    from .model import (
+        WallError, _path_cumulative, _point_on_path_distance, path_world,
+        profile_at_fraction, read_wall, wall_offsets,
+    )
+    from PySide6.QtGui import QMatrix4x4
+
+    spec = normalize_fill(raw)
+    if getattr(wall_group, "uid", None) != spec["host_id"]:
+        raise FillError("O ID do hospedeiro não corresponde à parede escolhida.")
+    try:
+        values = read_wall(wall_group)
+    except WallError as exc:
+        raise FillError(f"Parede de destino inválida: {exc}") from exc
+    opening = next((item for item in values["openings"]
+                    if item.get("id") == spec["opening_id"]), None)
+    if opening is None or opening.get("source_id") != spec["id"]:
+        raise FillError("O vão não está associado a esta porta ou janela.")
+    if opening.get("kind") != "rect":
+        raise FillError("O objeto paramétrico básico exige vão retangular.")
+    if abs(opening["width"]-spec["width"]) > 1.0e-5 or abs(
+            opening["height"]-spec["height"]) > 1.0e-5:
+        raise FillError("As dimensões da esquadria devem acompanhar o vão.")
+
+    points, cumulative = _path_cumulative(path_world(wall_group))
+    L = cumulative[-1]
+    left, right = station_span(spec)
+    if left < .02 or right > L-.02:
+        raise FillError("A esquadria está fora dos limites de ancoragem da parede.")
+    # For curved walls, the origin is the left station and rotation follows
+    # the local chord: the leaf itself remains straight and parametrically
+    # linked to the host's reference station.
+    point = _point_on_path_distance(points, cumulative, left)
+    center = _point_on_path_distance(points, cumulative, (left+right)/2)
+    end = _point_on_path_distance(points, cumulative, right)
+    tangent = end-point
+    tangent.setZ(0)
+    if tangent.length() < 1.0e-8:
+        raise FillError("Trajetória da parede degenerada na região do vão.")
+    tangent.normalize()
+    normal = QVector3D(-tangent.y(), tangent.x(), 0)
+    lo, hi = wall_offsets(values)
+    offset = (lo+hi)/2
+    b, _t, _xy = profile_at_fraction(values, left/L)
+    assembly = make_fill_group(spec, wall_thickness=values["thickness"])
+    matrix = QMatrix4x4()
+    matrix.translate(point.x()+normal.x()*offset,
+                     point.y()+normal.y()*offset,
+                     point.z()+b+spec["sill"])
+    matrix.rotate(math.degrees(math.atan2(tangent.y(), tangent.x())),
+                  0, 0, 1)
+    assembly.xform = matrix
+    return assembly
