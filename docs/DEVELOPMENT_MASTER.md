@@ -40,7 +40,7 @@
 | 02 | Alinhar/distribuir X/Y/Z | Patch anterior, ainda não integrado à `main` |
 | 03 | Cenas, plantas por pavimento, vistas/cortes | Barra de vistas em patch; cenas automáticas pendentes |
 | 04 | Escalas, cotas e símbolos 2D na viewport | Especificado, não implementado |
-| 05A | Aberturas livres e hospedadas sem arestas residuais | **Parcial experimental:** retângulos podem alcançar o piso/topo; faces inferiores/superiores atravessando cortes foram condicionadas; polígonos livres e teste real pendentes |
+| 05A | Aberturas livres e hospedadas sem arestas residuais | **Em implementação experimental:** retângulos no piso/topo; algoritmo de polígonos livres e recortes na malha recém-adicionados, ainda sem validação de runtime/interface |
 | 05B | Porta de giro e janela paramétricas | Prioritário, depende de 05A |
 | 06 | Tramas vetoriais por material/camada | Contrato preparado; renderizador/editor pendentes |
 | 07 | Compositor, IFC, round-trip e testes de regressão | Consolidação pendente |
@@ -76,3 +76,13 @@
 - **Ainda NÃO validado:** execução da malha `model.py` no IngeTrazo, verificação visual das faces/arestas, paredes curvas e inclinadas, junções, composições multicamadas, IFC e salvar/reabrir `.igz`.
 - **Ainda NÃO implementado:** aberturas livres poligonais editáveis por vértices/arestas em paredes, porta de giro e janela paramétrica. Não anunciar a nova capacidade no painel até validação e teste.
 - Antes de mesclar, revisar a geometria com o IngeTrazo e testar se o contorno fica totalmente limpo inclusive em vistas com corte.
+
+## Atualização 05A — retomada e geometria poligonal (2026-10-09)
+
+- **Branch de trabalho:** `dev/wall-openings-2026-10-09` (PR #5; base PR #3). PRs #4 (UI) e #6 (alinhar/distribuir) continuam separados, abertos e não mesclados. Release público e catálogo `0.12.9` não foram alterados.
+- **Commits desta retomada:** `eb246f3` (geometria poligonal pura), `4dc93e8` (9 testes de regressão planejados), `37b06c7` (integração experimental da malha ao `model.py`). Arquivos: `OpenTrace_BIM/wall_polygon.py`, `tests/test_wall_polygon.py`, `OpenTrace_BIM/model.py`.
+- **Implementado em código, não habilitado pela UI:** normalização básica de abertura poligonal na parede (coordenadas locais distância/altura); conservação de `id`, `source_id`, `ifc_global_id`; particionamento das faixas pela silhueta da abertura e pelo perfil de altura da parede; tentativa de gerar superfícies de requadro por aresta; despacho para gerador poligonal somente quando o registro contém abertura dessa classe. Retângulos legados continuam no caminho antigo.
+- **A validar/corrigir ANTES de apresentar ao usuário:** executar testes Python (os 9 casos novos ainda não foram executados nesta retomada); confrontar faces e arestas de malha reais no IngeTrazo; concavidade, cruzamentos, curvas, paredes inclinadas/multicamadas, junções, Undo/Redo, salvar/reabrir `.igz`, e exportação IFC. Ainda falta a ferramenta de desenho e edição por hotspots na UI; `host_capabilities` mantém `embedded_polygon=False` até confirmação.
+- **Sem promessa de funcionalidade concluída:** portas e janelas paramétricas são o bloco 05B, ainda não iniciado na interface. Não criar release/instalador nem mesclar a `main` sem autorização.
+- **Próximas ações técnicas:** (1) testar e corrigir o algoritmo poligonal, inclusive arestas coincidentes com piso/topo e contorno limpo; (2) editor de abertura livre e edição de vértices/arestas análogos aos da laje; (3) teste de runtime do bloco 05A; (4) porta de giro e janela paramétricas com objeto independente preenchendo abertura, âncoras esquerda/centro/direita, inversão de giro e hotspots conforme contrato; (5) IFC e testes de persistência.
+- **Nota de histórico:** os testes `16 passaram` anotados anteriormente pertencem à preparação do PR #5, não representam novos testes executados nesta retomada.
