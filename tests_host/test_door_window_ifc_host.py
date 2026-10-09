@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """IFC4 regression: a physical fill must never be exported twice."""
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,8 +55,10 @@ def export_lines(scene, profile="opentrace"):
 
 
 def entries(lines, entity):
-    pattern = re.compile(r"^#\\d+=" + re.escape(entity.upper()) + r"\\(")
-    return [line for line in lines if pattern.search(line)]
+    prefix = entity.upper() + "("
+    return [line for line in lines
+            if line.startswith("#") and "=" in line
+            and line.split("=", 1)[1].startswith(prefix)]
 
 
 class HostedIfcTests(unittest.TestCase):
