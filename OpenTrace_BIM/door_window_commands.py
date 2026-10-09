@@ -173,15 +173,9 @@ class EditHostedFill(Command):
                 staged = place_fill_on_wall(self.spec, self.wall)
                 # Carry across custom metadata/IFC overrides, not just the
                 # generated frame and leaf meshes.
+                generated = copy.deepcopy(_fill_record(staged))
                 staged.ext = copy.deepcopy(self.group.ext)
-                staged.ext[KEY] = copy.deepcopy(_fill_record(staged) or {
-                    "schema": 1,
-                    "kind": self.spec["kind"],
-                    "source_id": self.spec["id"],
-                    "host_id": self.spec["host_id"],
-                    "opening_id": self.spec["opening_id"],
-                    "params": copy.deepcopy(self.spec),
-                })
+                staged.ext[KEY] = generated
                 staged.ifc = copy.deepcopy(self.group.ifc)
                 staged.ifc["name"] = self.spec["name"]
                 staged.name = self.spec["name"]
