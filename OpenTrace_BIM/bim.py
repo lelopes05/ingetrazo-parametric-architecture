@@ -66,6 +66,7 @@ def default_document_data():
         "project": {
             "name": "Projeto OpenTrace", "site": "Terreno", "building": "Edifício",
             "author": "", "organization": "", "description": "",
+            "client": "", "location": "",
         },
         "spatial_ids": {
             "project": new_ifc_guid(), "site": new_ifc_guid(), "building": new_ifc_guid(),
