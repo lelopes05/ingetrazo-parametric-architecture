@@ -20,7 +20,8 @@ from .model import (
     nearest_path_distance_world, path_world, profile_at_fraction,
     read_wall, wall_opening_intervals, wall_path_kind,
 )
-from .wall_polygon import normalize_polygon
+from .wall_polygon import (normalize_polygon, insert_vertex, move_vertex,
+                           move_edge, delete_vertex)
 
 
 class WallPolygonTool(Tool):
@@ -44,17 +45,21 @@ class WallPolygonTool(Tool):
         self.mode = "create"
         self.opening_id = None
         self.vertex_index = None
+        self.edge_index = None
+        self.pick_anchor = None
+        self.operation = "move_vertex"
         self.reference_path = []
         self.cumulative = []
         self.values = None
         self.plane_station = 0.0
 
-    def prepare(self, wall, anchor, opening_id=None):
+    def prepare(self, wall, anchor, opening_id=None, operation="move_vertex"):
         self.reset()
         self.wall = wall
         self.anchor = QVector3D(anchor)
         self.mode = "edit" if opening_id else "create"
         self.opening_id = opening_id
+        self.operation = operation
         self.start_point = QVector3D(anchor)
 
     def on_activate(self, viewport):
@@ -74,9 +79,16 @@ class WallPolygonTool(Tool):
                 if opening is None or opening.get("kind") != "polygon":
                     raise WallError("A abertura poligonal selecionada não está disponível.")
                 self.points = [list(p) for p in opening["polygon"]]
+                self.plane_station = sum(p[0] for p in self.points)/len(self.points)
+                messages = {
+                    "move_vertex": "Selecione um vértice e depois indique sua nova posição.",
+                    "insert_vertex": "Clique na aresta onde deseja inserir um vértice.",
+                    "move_edge": "Clique numa aresta e depois indique seu deslocamento.",
+                    "delete_vertex": "Clique no vértice a excluir (mínimo três).",
+                }
                 self.controller.message(
-                    "Editar abertura: clique num vértice e depois na nova posição. "
-                    "Esc cancela a ferramenta; cada movimento tem Undo/Redo.")
+                    "Editar abertura: " + messages.get(self.operation, messages["move_vertex"])
+                    + " Esc encerra; cada edição tem Undo/Redo.")
             else:
                 self.controller.message(
                     "Abertura livre: clique os vértices na face da parede e "
@@ -128,6 +140,27 @@ class WallPolygonTool(Tool):
         base, _top, _offset = profile_at_fraction(self.values, s/length)
         return QVector3D(q.x(), q.y(),
                          self.wall.xform.map(QVector3D(0, 0, 0)).z()+base+z)
+
+    def _edge_from_screen(self, viewport, screen):
+        """Find the nearest visible edge of the polygon, using screen pixels."""
+        x, y = float(screen.x()), float(screen.y())
+        best = None
+        n = len(self.points)
+        for i in range(n):
+            a = viewport._world_to_pixel(self._world(self.points[i]))
+            b = viewport._world_to_pixel(self._world(self.points[(i+1)%n]))
+            if a is None or b is None:
+                continue
+            dx, dy = b[0]-a[0], b[1]-a[1]
+            den = dx*dx+dy*dy
+            if den <= 1.0e-8:
+                continue
+            t = max(0.0, min(1.0, ((x-a[0])*dx+(y-a[1])*dy)/den))
+            dist = math.hypot(x-a[0]-t*dx, y-a[1]-t*dy)
+            if best is None or dist < best[0]:
+                best = (dist, i)
+        threshold = max(10.0, float(getattr(viewport, "snap_threshold_px", 10.0)))
+        return best[1] if best is not None and best[0] <= threshold else None
 
     def _near_vertex(self, viewport, screen, point):
         projected = viewport._world_to_pixel(self._world(point))
@@ -192,21 +225,57 @@ class WallPolygonTool(Tool):
         local = self._local(ctx.world)
         self.plane_station = local[0]
         if self.mode == "edit":
-            if self.vertex_index is None:
-                for i, p in enumerate(self.points):
-                    if self._near_vertex(ctx.viewport, ctx.screen, p):
-                        self.vertex_index = i
-                        self.controller.message("Clique na nova posição deste vértice.")
-                        break
+            try:
+                length = self.values["length"]
+                if self.operation in ("move_vertex", "delete_vertex"):
+                    if self.vertex_index is None:
+                        for i, p in enumerate(self.points):
+                            if self._near_vertex(ctx.viewport, ctx.screen, p):
+                                self.vertex_index = i
+                                break
+                        else:
+                            self.controller.message("Selecione um vértice da abertura.", error=True)
+                    if self.vertex_index is not None:
+                        if self.operation == "delete_vertex":
+                            candidate = delete_vertex(self.points, self.vertex_index, length)
+                            if self._commit(ctx.viewport, candidate, replace=True):
+                                self.points = candidate
+                                self.vertex_index = None
+                        elif self.pick_anchor is None:
+                            self.pick_anchor = list(self.points[self.vertex_index])
+                            self.controller.message("Indique a nova posição do vértice.")
+                        else:
+                            candidate = move_vertex(self.points, self.vertex_index, local, length)
+                            if self._commit(ctx.viewport, candidate, replace=True):
+                                self.points = candidate
+                                self.vertex_index = None
+                                self.pick_anchor = None
                 else:
-                    self.controller.message("Clique num vértice da abertura para editá-lo.", error=True)
-            else:
-                candidate = copy.deepcopy(self.points)
-                candidate[self.vertex_index] = local
-                if self._commit(ctx.viewport, candidate, replace=True):
-                    self.points = candidate
-                    self.vertex_index = None
-                    self.controller.message("Vértice movido. Selecione outro ou pressione Esc.")
+                    if self.edge_index is None:
+                        self.edge_index = self._edge_from_screen(
+                            ctx.viewport, ctx.screen)
+                        if self.edge_index is None:
+                            self.controller.message("Clique numa aresta da abertura.", error=True)
+                        elif self.operation == "move_edge":
+                            self.pick_anchor = list(local)
+                            self.controller.message("Indique a nova posição da aresta.")
+                        else:
+                            candidate = insert_vertex(
+                                self.points, self.edge_index, local, length)
+                            if self._commit(ctx.viewport, candidate, replace=True):
+                                self.points = candidate
+                            self.edge_index = None
+                    else:
+                        delta = [local[0]-self.pick_anchor[0],
+                                 local[1]-self.pick_anchor[1]]
+                        candidate = move_edge(self.points, self.edge_index,
+                                              delta, length)
+                        if self._commit(ctx.viewport, candidate, replace=True):
+                            self.points = candidate
+                            self.edge_index = None
+                            self.pick_anchor = None
+            except (ValueError, WallError) as exc:
+                self.controller.message(str(exc), error=True)
         else:
             if len(self.points) >= 3 and self._near_vertex(
                     ctx.viewport, ctx.screen, self.points[0]):
@@ -232,7 +301,8 @@ class WallPolygonTool(Tool):
             lines.append((points[-1], points[0]))
         if self.hover is not None and self.mode == "create" and points:
             lines.append((points[-1], self.hover))
-        if self.mode == "edit" and self.vertex_index is not None and self.hover is not None:
+        if (self.mode == "edit" and self.vertex_index is not None
+                and self.pick_anchor is not None and self.hover is not None):
             n = len(points)
             i = self.vertex_index
             lines.append((points[(i-1)%n], self.hover))
