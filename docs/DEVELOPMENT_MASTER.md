@@ -31,21 +31,24 @@
 - Manual `?` contextual começa com `O que há de novo` em cada release. Sobre inclui GitHub, discussão IngeTrazo #449 e atualizador oficial; nenhum site fictício.
 - Alinhamento/distribuição X/Y/Z em paleta ancorável, com limites reais de grupos e histórico undoável do host.
 
-## Blocos — estado
+## Etapas — ordem REAL de desenvolvimento (reordenadas em 2026-10-09)
 
-| Bloco | Escopo | Estado na abertura desta frente |
+**A numeração abaixo é a ordem de prioridade e de dependência para execução — substitui os antigos números de blocos na seção de planejamento.** Os números dos PRs GitHub são identificadores permanentes e NÃO acompanham essa renumeração. O 05A antigo = etapa **01** atual; o 05B antigo = etapa **02** atual.
+
+| Etapa atual | Escopo | Estado verificado / referência histórica |
 |---|---|---|
-| 00 | Fundação, contratos e testes | Preparado em branch; testes Python necessários |
-| 01 | UI, barra de criação, cadastro Projeto, manual, Sobre/novidades | Patches anteriores, ainda não integrados à `main` |
-| 02 | Alinhar/distribuir X/Y/Z | Patch anterior, ainda não integrado à `main` |
-| 03 | Cenas, plantas por pavimento, vistas/cortes | Barra de vistas em patch; cenas automáticas pendentes |
-| 04 | Escalas, cotas e símbolos 2D na viewport | Especificado, não implementado |
-| 05A | Aberturas livres e hospedadas sem arestas residuais | **Em implementação experimental:** retângulos no piso/topo; algoritmo de polígonos livres e recortes na malha recém-adicionados, ainda sem validação de runtime/interface |
-| 05B | Porta de giro e janela paramétricas | Prioritário, depende de 05A |
-| 06 | Tramas vetoriais por material/camada | Contrato preparado; renderizador/editor pendentes |
-| 07 | Compositor, IFC, round-trip e testes de regressão | Consolidação pendente |
+| 00 | Fundação técnica, contratos e testes | Preparada no PR #3; ainda não mesclada na main |
+| **01** | **Aberturas de paredes:** retângulos no piso/topo, abertura livre poligonal, edição por vértices/arestas, paredes curvas e malha sem arestas indevidas | **Prioridade imediata.** PR #5 (antigo bloco 05A) em implementação experimental; ainda sem testes de runtime |
+| **02** | **Portas e janelas paramétricas:** objetos de preenchimento, uma porta de abrir e uma janela, âncoras esquerda/centro/direita, inversão de giro, hotspots/paleta radial, IFC | **Próxima prioridade, depende da 01.** Antigo bloco 05B; não implementado |
+| 03 | Integração de criação/edição de aberturas, portas e janelas à paleta | Pendente; depende da geometria e dos objetos das etapas 01–02 |
+| 04 | Interface geral: barra de criação, menus, Informações do Projeto, manual, Sobre, alinhamento/distribuição X/Y/Z | Parcial em PRs #4 e #6, ambos não mesclados; podem evoluir em paralelo sem conflitar com 01 |
+| 05 | Vistas arquitetônicas: cenas, plantas por pavimento, cortes, elevações, escalas | Barra em patch anterior; cenas automáticas pendentes |
+| 06 | Representação 2D: cotas, símbolos e tramas vetoriais paramétricas por material/camada e escala | Contrato preparado, renderizador/editor pendentes |
+| 07 | Compositor, consolidação IFC, interoperabilidade, round-trip e testes finais | Integração transversal e validação final pendentes |
 
-**Trabalho paralelo:** 01 e 02 separados; 03 e 05A podem progredir em arquivos distintos. 04 depende de 03; 05B de 05A; 06 de 03 e materiais; 07 é integração contínua. Nunca alterar os mesmos arquivos em duas frentes sem reconciliar.
+**Ordem prioritária de execução:** 00 (fundação de suporte) → **01 aberturas** → **02 portas e janelas** → 03 integração à paleta → 04 interface geral → 05 vistas → 06 representação 2D/tramas → 07 Compositor/IFC/consolidação. Partes independentes das etapas 04 e 05 podem ser preparadas paralelamente. IFC e testes básicos ocorrem desde o início, embora a consolidação final seja 07.
+
+**Mapa de números antigos (somente para leitura de commits e PRs):** 00 → 00; antigo 05A → novo 01; antigo 05B → novo 02; parte da antiga 01 → novo 03 (integração à paleta); antigas 01 e 02 → novo 04 (interface/alinhamento); antiga 03 → novo 05; antigas 04 e 06 → novo 06; antiga 07 → novo 07. O registro histórico abaixo ainda pode mencionar 05A/05B ao citar o código/PR de sua época.
 
 ## Achados concretos da versão 0.12.9
 
@@ -57,17 +60,18 @@
 - IngeTrazo já tem cenas com cortes, Compositor com escala real e uma hachura vetorial 45°; falta biblioteca de material por escala na viewport.
 - Arquivo local de conversas anteriores: `opentrace_ui_pending_cumulative.patch` contém barra de vistas, manual/Sobre e alinhamento, mas só valerá como implementado após integração e teste.
 
-## Execução e handoff
+## Execução e handoff — sequência atual
 
-1. Bloco 00: validar `architecture_contracts.py` e `tests/test_architecture_contracts.py` com `python -m unittest discover -s tests -v` desde a raiz. Sem hooks novos no `setup()`.
-2. Bloco 01: reconciliar patches UI anteriores com branch atual. Priorizar UI limpa, cadastro de projeto e manual.
-3. Bloco 02: validar alinhamento pelo bounding box real, Undo/Redo, objetos aninhados, salvar/reabrir.
-4. Bloco 05A pode iniciar em paralelo: porta no piso, abertura poligonal livre, parede curva, malha limpa e parede baixa preservada; depois 05B portas/janelas.
-5. Blocos 03–04: corte real por pavimento, escalas de representação e vinculação ao Compositor; 06 tramas vetoriais; 07 consolidação e IFC.
-6. Testes no IngeTrazo pelo usuário quando necessários: criação/edição, Undo/Redo, salvar/reabrir `.igz`, superfícies vazadas limpas, arquivo IFC Bonsai/Archicad/FreeCAD quando houver ambiente.
-7. Antes de terminar cada conversa, registrar status **verificado**, arquivos, testes, branch/commit, questões pendentes e próxima ação neste documento.
+1. **Etapa 00:** preservar e validar os contratos e os testes da fundação do PR #3.
+2. **Etapa 01 (antiga 05A; PR #5):** concluir o motor de aberturas retangulares e poligonais; validar geometria de paredes baixas, inclinadas, curvas, multicamadas, junções e IFC; eliminar faces/arestas residuais; disponibilizar desenho/edição por vértices/arestas; testar no IngeTrazo, Undo/Redo e salvar/reabrir `.igz`.
+3. **Etapa 02 (antiga 05B):** implementar porta de giro e janela como objetos paramétricos separados dos vazios; associar por `source_id`; respeitar âncoras e hotspots definidos; validar IFC.
+4. **Etapa 03:** ligar criação e edição desses elementos às paletas e menus contextuais sem antecipar suporte não validado.
+5. **Etapa 04:** reconciliar UI e cadastros do PR #4, alinhamento/distribuição do PR #6, manual e Sobre; validar caixas, seleção, Undo/Redo e persistência. Trabalho sem conflito pode avançar em paralelo.
+6. **Etapas 05–06:** cenas, vistas, cortes, escalas, cotas, símbolos e tramas vetoriais. Reusar o host e o Compositor sem duplicar geometria.
+7. **Etapa 07:** consolidar IFC, Compositor, round-trip e regressões (Bonsai, Archicad, FreeCAD conforme ambientes disponíveis); não confundir testes Python com teste de runtime.
+8. Antes de encerrar cada conversa, registrar status **verificado**, arquivos, testes realmente executados, branch/commit, pendências e próxima ação.
 
-**Prompt de retomada:** Leia `docs/DEVELOPMENT_MASTER.md` na branch de desenvolvimento atual de `lelopes05/opentrace-bim`; confira GitHub e os testes antes de continuar. Não publique/empacote sem autorização. Desenvolva primeiro 01 e 02 e em paralelo 05A, mantendo este registro atualizado.
+**Prompt de retomada:** Leia `docs/DEVELOPMENT_MASTER.md` na branch mais recente de `lelopes05/opentrace-bim` e os PRs #3–#6; preserve a **ordem atual 01 aberturas → 02 portas/janelas → 03 paletas**, sem usar a numeração histórica 05A/05B como prioridade. Mantenha o documento atualizado. Não empacote, mescle na `main`, instale ou publique release/catálogo sem autorização.
 
 ## Atualização da frente 05A — 2026-10-09
 
@@ -86,3 +90,9 @@
 - **Sem promessa de funcionalidade concluída:** portas e janelas paramétricas são o bloco 05B, ainda não iniciado na interface. Não criar release/instalador nem mesclar a `main` sem autorização.
 - **Próximas ações técnicas:** (1) testar e corrigir o algoritmo poligonal, inclusive arestas coincidentes com piso/topo e contorno limpo; (2) editor de abertura livre e edição de vértices/arestas análogos aos da laje; (3) teste de runtime do bloco 05A; (4) porta de giro e janela paramétricas com objeto independente preenchendo abertura, âncoras esquerda/centro/direita, inversão de giro e hotspots conforme contrato; (5) IFC e testes de persistência.
 - **Nota de histórico:** os testes `16 passaram` anotados anteriormente pertencem à preparação do PR #5, não representam novos testes executados nesta retomada.
+
+## Retificação de prioridade e numeração — 2026-10-09
+
+- A numeração histórica 05A/05B deixou de representar a ordem de execução. **Ordem vigente: 01 aberturas → 02 portas/janelas → 03 integração às paletas → 04 interface geral → 05 vistas → 06 representação 2D/tramas → 07 Compositor/IFC e consolidação.** A fundação é etapa 00.
+- PRs não foram renumerados nem mesclados; o PR #5 ainda reúne a frente de aberturas e o PR #3 mantém a base contratual. Os nomes antigos só ficam para rastreabilidade dos commits anteriores.
+- Esta atualização altera somente o documento mestre na branch experimental de aberturas; nenhuma mudança no release 0.12.9 ou no catálogo.
