@@ -66,8 +66,13 @@ def normalize_polygon(raw, length, margin=0.02):
     if abs(area) <= EPS:
         raise ValueError("A abertura precisa delimitar uma área.")
     for i in range(n):
-        if math.dist(pts[i], pts[(i+1)%n]) <= EPS:
-            raise ValueError("A abertura tem aresta de comprimento zero.")
+        if math.dist(pts[i], pts[(i+1)%n]) < 0.001:
+            raise ValueError("A abertura precisa de arestas com pelo menos 1 mm.")
+        before, current, after = pts[(i-1)%n], pts[i], pts[(i+1)%n]
+        ux, uz = current[0]-before[0], current[1]-before[1]
+        vx, vz = after[0]-current[0], after[1]-current[1]
+        if abs(_cross(before, current, after)) <= EPS and ux*vx+uz*vz < -EPS:
+            raise ValueError("Arestas adjacentes não podem voltar sobre o mesmo trecho.")
         for j in range(i+1, n):
             if j == i+1 or (i == 0 and j == n-1):
                 continue
