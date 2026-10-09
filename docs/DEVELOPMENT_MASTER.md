@@ -36,7 +36,7 @@
 | Bloco | Escopo | Estado na abertura desta frente |
 |---|---|---|
 | 00 | Fundação, contratos e testes | Preparado em branch; testes Python necessários |
-| 01 | UI, barra de criação, cadastro Projeto, manual, Sobre/novidades | Patches anteriores, ainda não integrados à `main` |
+| 01 | UI, barra de criação, cadastro Projeto, manual, Sobre/novidades | **Parcial:** Informações do Projeto em página própria + Cliente/Localização na branch `dev/project-info-ui-2026-10-09`; demais patches não integrados; UI sem teste no IngeTrazo |
 | 02 | Alinhar/distribuir X/Y/Z | Patch anterior, ainda não integrado à `main` |
 | 03 | Cenas, plantas por pavimento, vistas/cortes | Barra de vistas em patch; cenas automáticas pendentes |
 | 04 | Escalas, cotas e símbolos 2D na viewport | Especificado, não implementado |
@@ -68,3 +68,10 @@
 7. Antes de terminar cada conversa, registrar status **verificado**, arquivos, testes, branch/commit, questões pendentes e próxima ação neste documento.
 
 **Prompt de retomada:** Leia `docs/DEVELOPMENT_MASTER.md` na branch de desenvolvimento atual de `lelopes05/opentrace-bim`; confira GitHub e os testes antes de continuar. Não publique/empacote sem autorização. Desenvolva primeiro 01 e 02 e em paralelo 05A, mantendo este registro atualizado.
+
+## Última atualização — 2026-10-09
+
+- **Bloco 00:** branch `dev/architecture-foundation-2026-10-09`, PR rascunho #3: contratos de dados e 10 testes Python preparados; sem hooks de runtime.
+- **Bloco 01 parcial:** branch `dev/project-info-ui-2026-10-09` baseada no bloco 00. `bim_ui.py`: retirou campos de projeto da página BIM e apresentou painel próprio; `suite_panel.py`: botão `ⓘ` para abrir página de Projeto sem iniciar criação; `bim.py`: incluiu cliente/localização no cadastro e manteve compatibilidade com arquivos antigos. Testes de registro pure-Python foram adicionados.
+- **Não concluído:** teste visual no host, demais ajustes de BIM avançado/Help/Sobre, barra contextual, verificação do patch acumulado. PR/branch de desenvolvimento, não release.
+- **Próxima frente:** 05A, aberturas livres de parede, vãos com base=0, malha limpa, preparação para porta/janela. Avançar em arquivos isolados, sem modificar a branch principal.
