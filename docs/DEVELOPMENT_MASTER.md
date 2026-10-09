@@ -135,3 +135,11 @@
 - **Próximo desenvolvimento 02:** geração real de geometria de folhas/marcos em grupos separados, ligação ao vão da etapa 01 por ID e ferramenta de criação/edição com paleta/hotspots; depois IFC e persistência em `.igz`.
 
 **Regras preservadas:** não mesclar PRs rascunho sem aval; não confundir pacote experimental com release 0.12.9; PRs #3, #4, #5, #6 e #7 continuam com independência documentada.
+
+## Checkpoint verificável — pacote de teste 01 (2026-10-09)
+
+- [Workflow real de malha + pacote, run 37981273027](https://github.com/lelopes05/opentrace-bim/actions/runs/37981273027) concluído com **success** no commit `fdc706f14c15a9719e348c919b283ff382167ce2`.
+- Artefato GitHub efetivamente criado, não expirado: `OpenTrace-BIM-Stage01-Aberturas-EXPERIMENTAL` (artifact ID `11640349324`, cerca de 808 KB). Contém ZIP da pasta `OpenTrace_BIM`, `SHA256SUMS.txt` e `LEIA_PRIMEIRO.txt`; para baixar abrir a execução e seção **Artifacts**. Não constitui release publicado.
+- O pacote foi gerado **após** o job `host-mesh` passar; a UI no IngeTrazo e edição de projetos `.igz` ainda exigem teste manual. Descompactar em projeto descartável, fazer backup da pasta anterior e não colocar no catálogo público.
+- A CI da etapa 02, [run 37980967165](https://github.com/lelopes05/opentrace-bim/actions/runs/37980967165), aprovou `20 tests ... OK` e `compileall`, incluindo os 10 novos testes de portas/janelas; sem GUI/meshes reais.
+- **Próxima validação pelo usuário:** 1 parede reta com janela, 1 porta `sill=0` com altura nominal maior que a parede, 1 parede curva com abertura poligonal, 1 abertura concava, edição de vértices/arestas, Ctrl+Z/Refazer e salvar/abrir `.igz`. Verificar contornos limpos com materiais/cortes. Testar em cópia.
