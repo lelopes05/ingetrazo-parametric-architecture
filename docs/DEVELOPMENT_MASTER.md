@@ -172,3 +172,10 @@
 - **Próxima sequência:** (1) fechar CI do round-trip `.igz` e corrigir falhas reais; (2) reconciliar contra a **Etapa 01 após seus testes no IngeTrazo**, sem copiar/desfazer o motor de vãos; (3) instalar comando de criação/edição na UI via `host.py` e hotspots/paleta radial; (4) executar testes de interação, Undo/Redo, salvar/abrir e exportação IFC externa antes de pedir merge/release.
 
 **Retomada recomendada:** conferir este documento no PR #7 e o estado do PR #5. Conservar prioridade 01 (testes e correções das aberturas) → 02 (porta/janela) → 03 (integração às paletas). Não mesclar/publicar/empacotar sem autorização.
+
+
+### Gate de persistência fechado por CI (2026-10-09)
+
+- [GitHub Actions run 37984038316](https://github.com/lelopes05/opentrace-bim/actions/runs/37984038316), head `4810cba`, **success**: **Ran 16 tests ... OK** com classes reais `Scene`, `Mesh`, `Group`, o exportador IFC e o serializador **`formats.igz.save_scene/load_into`** do IngeTrazo. O teste `test_window_group_opening_and_guid_survive_save_open_and_edit` passou: grupo, malha, UID, IFC GUID, abertura e `source_id` foram preservados e a janela pôde ser alterada/desfeita após a reabertura.
+- [Testes puros run 37984044243](https://github.com/lelopes05/opentrace-bim/actions/runs/37984044243), também **success**, incluindo regras de ancoragem/hotspots. A falha intermediária anterior era ausência da dependência NumPy no ambiente CI, corrigida no workflow.
+- **Gate visual continua aberto:** salvar/reabrir no teste headless não representa abrir a janela dentro da GUI; a ferramenta interativa e os pontos de controle ainda não estão registrados na interface. Porta `sill=0` requer reconciliar o motor do PR #5; a versão pública 0.12.9 não mudou.
