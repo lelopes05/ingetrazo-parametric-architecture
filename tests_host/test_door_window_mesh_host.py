@@ -2,7 +2,10 @@
 """Stage 02 real IngeTrazo mesh tests; no GUI/host event loop needed."""
 import unittest
 
-from OpenTrace_BIM.door_window_geometry import build_fill_parts, make_fill_group
+from OpenTrace_BIM.door_window_geometry import build_fill_parts, make_fill_group, place_fill_on_wall
+from OpenTrace_BIM.door_window_core import opening_request
+from OpenTrace_BIM.model import DEFAULTS, make_wall_segment
+from PySide6.QtGui import QVector3D
 
 
 def element(kind, **kwargs):
@@ -40,6 +43,22 @@ class FillMeshTests(unittest.TestCase):
         self.assertEqual(sum(p.name.startswith("Vidro") for p in parts), 3)
         for part in parts:
             self.assert_closed_mesh(part)
+
+    def test_fixed_window_placement_follows_host_reference_and_source_id(self):
+        raw = element("window", width=1.20, position=2.0)
+        opening = opening_request(raw)
+        values = dict(DEFAULTS, length=4.0, openings=[opening])
+        host = make_wall_segment(
+            QVector3D(1, 2, 0), QVector3D(5, 2, 0), values)
+        raw["host_id"] = host.uid
+        assembly = place_fill_on_wall(raw, host)
+        self.assertEqual(assembly.ext["arquitetura_parametrica"]["opening_id"],
+                         "opening001")
+        location = assembly.xform.map(QVector3D(0, 0, 0))
+        self.assertAlmostEqual(location.x(), 3.0)
+        self.assertAlmostEqual(location.y(), 2.05)
+        self.assertAlmostEqual(location.z(), .9)
+        self.assertEqual(len(assembly.children), 5)
 
     def test_group_preserves_identity_and_host_reference(self):
         spec = element("door", anchor="right", position=3.0)
