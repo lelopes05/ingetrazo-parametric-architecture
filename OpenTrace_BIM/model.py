@@ -70,7 +70,7 @@ def normalize_wall_openings(raw, length, height):
         if not isinstance(item,dict):
             continue
         if item.get("kind") in ("polygon", "embedded") or item.get("shape") == "polygon":
-            from .wall_polygon import normalize_polygon, clip_to_wall
+            from .wall_polygon import normalize_polygon
             edges = item.get("edges")
             pts_raw = item.get("polygon")
             if edges is not None and (not isinstance(edges, (list, tuple)) or
@@ -82,10 +82,8 @@ def normalize_wall_openings(raw, length, height):
                 polygon = normalize_polygon(pts_raw, length)
             except (ValueError, TypeError, OverflowError) as exc:
                 raise WallError(str(exc)) from exc
-            if not any(clip_to_wall(a, b, length, [0.0, 0.0],
-                                    [height, height]) is not None
-                       for a, b in zip(polygon, polygon[1:] + polygon[:1])):
-                raise WallError("A abertura poligonal não intercepta a parede.")
+            # Wall clearance may be sloped. Test actual base/top profiles
+            # when resolving the hosted span, never against the min height.
             item_copy = {
                 "id": str(item.get("id") or f"wall-opening-{i+1}"),
                 "kind": "polygon", "polygon": polygon,
@@ -701,7 +699,13 @@ def wall_opening_intervals(values, path):
     result=[]
     for o in ops:
         if o.get("kind") == "polygon":
-            stations = [float(x) for x, _ in o["polygon"]]
+            from .wall_polygon import clip_to_wall
+            polygon = o["polygon"]
+            if not any(clip_to_wall(a, b, L, p["base_profile"],
+                                    p["top_profile"]) is not None
+                       for a, b in zip(polygon, polygon[1:]+polygon[:1])):
+                raise WallError("A abertura poligonal não intercepta a parede.")
+            stations = [float(x) for x, _ in polygon]
             s0, s1 = min(stations), max(stations)
             if not margin < s0 < s1 < L-margin:
                 raise WallError("A abertura poligonal deve respeitar os extremos da parede.")
