@@ -83,3 +83,18 @@
 - `OpenTrace_BIM/arrange_ui.py`: paleta ancorável via API do IngeTrazo, seleção restrita a grupos/componentes completos, histórico `MoveGroupCommand` em `CompoundCommand` para Ctrl+Z.
 - `tests/test_arrange_core.py`: 8 testes independentes. 24 testes de cálculo/contratos passaram no ambiente local de preparação somando outros blocos; **a UI e o host não foram executados**.
 - Pendências: testar dock e interação nativa, seleção mista/grupos aninhados, seleção de vários objetos, Undo/Redo, salvar/reabrir; revisar experiência visual no IngeTrazo.
+
+## Índice consolidado das frentes — 2026-10-09
+
+**Registro de referência mais completo neste momento:** `dev/arrange-tools-2026-10-09/docs/DEVELOPMENT_MASTER.md`. As frentes 05A e 02 são branches paralelas; a primeira NÃO está dentro desta branch. Não presumir integração apenas por constarem neste índice.
+
+| Frente/PR | Branch | Base | Estado real |
+|---|---|---|---|
+| 00 · [PR #3](https://github.com/lelopes05/opentrace-bim/pull/3) | `dev/architecture-foundation-2026-10-09` | `main` | Documentação + contratos; testes puros; sem hook |
+| 01 parcial · [PR #4](https://github.com/lelopes05/opentrace-bim/pull/4) | `dev/project-info-ui-2026-10-09` | frente 00 | Página Projeto separada, cliente/localidade; teste Qt pendente |
+| 02 · [PR #6](https://github.com/lelopes05/opentrace-bim/pull/6) | `dev/arrange-tools-2026-10-09` | frente 01 | Alinhar/distribuir X/Y/Z; cálculos testados; teste Qt pendente |
+| 05A parcial · [PR #5](https://github.com/lelopes05/opentrace-bim/pull/5) | `dev/wall-openings-2026-10-09` | frente 00 | Gerador retangular piso/topo experimental, sem teste no host. Editor poligonal livre, porta e janela pendentes |
+
+**Atenção:** antes de juntar 05A com 01/02, reconciliar bases e rodar testes de regressão. Não existe instalador dessa combinação. Todas as PRs estão em rascunho; `main`/release 0.12.9 intactos.
+
+**Próxima sessão sugerida:** iniciar pelo índice consolidado aqui; testar UI 01/02 assim que houver pacote de teste autorizado; desenvolver abertura livre poligonal de parede (05A) e porta/janela mínimas (05B); depois 03 vistas em escala. Nunca declarar como testado no IngeTrazo apenas pelos testes dos contratos.
