@@ -37,7 +37,7 @@
 |---|---|---|
 | 00 | Fundação, contratos e testes | Preparado em branch; testes Python necessários |
 | 01 | UI, barra de criação, cadastro Projeto, manual, Sobre/novidades | **Parcial:** Informações do Projeto em página própria + Cliente/Localização na branch `dev/project-info-ui-2026-10-09`; demais patches não integrados; UI sem teste no IngeTrazo |
-| 02 | Alinhar/distribuir X/Y/Z | Patch anterior, ainda não integrado à `main` |
+| 02 | Alinhar/distribuir X/Y/Z | **Código preparado:** `arrange_core.py` e paleta `arrange_ui.py`, botão na suite; teste no host pendente |
 | 03 | Cenas, plantas por pavimento, vistas/cortes | Barra de vistas em patch; cenas automáticas pendentes |
 | 04 | Escalas, cotas e símbolos 2D na viewport | Especificado, não implementado |
 | 05A | Aberturas livres e hospedadas sem arestas residuais | Prioritário; gerador da parede ainda limitado |
@@ -75,3 +75,11 @@
 - **Bloco 01 parcial:** branch `dev/project-info-ui-2026-10-09` baseada no bloco 00. `bim_ui.py`: retirou campos de projeto da página BIM e apresentou painel próprio; `suite_panel.py`: botão `ⓘ` para abrir página de Projeto sem iniciar criação; `bim.py`: incluiu cliente/localização no cadastro e manteve compatibilidade com arquivos antigos. Testes de registro pure-Python foram adicionados.
 - **Não concluído:** teste visual no host, demais ajustes de BIM avançado/Help/Sobre, barra contextual, verificação do patch acumulado. PR/branch de desenvolvimento, não release.
 - **Próxima frente:** 05A, aberturas livres de parede, vãos com base=0, malha limpa, preparação para porta/janela. Avançar em arquivos isolados, sem modificar a branch principal.
+
+## Atualização do bloco 02 — 2026-10-09
+
+- Branch `dev/arrange-tools-2026-10-09`, derivada da branch UI 01 (não da 05A) para evitar conflito de `suite_panel.py`.
+- `OpenTrace_BIM/arrange_core.py`: alinhamento min/centro/max por limites globais, distribuição por espaçamento livre igual preservando extremos; suporta X/Y/Z e volumes diferentes.
+- `OpenTrace_BIM/arrange_ui.py`: paleta ancorável via API do IngeTrazo, seleção restrita a grupos/componentes completos, histórico `MoveGroupCommand` em `CompoundCommand` para Ctrl+Z.
+- `tests/test_arrange_core.py`: 8 testes independentes. 24 testes de cálculo/contratos passaram no ambiente local de preparação somando outros blocos; **a UI e o host não foram executados**.
+- Pendências: testar dock e interação nativa, seleção mista/grupos aninhados, seleção de vários objetos, Undo/Redo, salvar/reabrir; revisar experiência visual no IngeTrazo.
