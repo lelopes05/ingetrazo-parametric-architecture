@@ -1,0 +1,30 @@
+name: OpenTrace wall openings — Python geometry
+
+on:
+  push:
+    branches:
+      - dev/wall-openings-2026-10-09
+  pull_request:
+    paths:
+      - 'OpenTrace_BIM/wall_polygon.py'
+      - 'OpenTrace_BIM/opening_profile.py'
+      - 'OpenTrace_BIM/architecture_contracts.py'
+      - 'tests/**'
+      - '.github/workflows/test-wall-openings.yml'
+  workflow_dispatch:
+
+jobs:
+  pure-geometry:
+    name: Contract and wall-opening geometry
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Unit tests (no Qt or IngeTrazo needed)
+        run: python -m unittest discover -s tests -v
+      - name: Compile extension Python modules
+        run: python -m compileall -q OpenTrace_BIM
