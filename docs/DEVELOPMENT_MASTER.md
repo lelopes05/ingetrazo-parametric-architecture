@@ -113,3 +113,25 @@
 - **CI confirmada, não apenas presumida:** GitHub Actions [run 37974788083](https://github.com/lelopes05/opentrace-bim/actions/runs/37974788083) na branch de aberturas, SHA `06b9249`: conclusão `success`. Log do job `113970216585` relata **Ran 31 tests ... OK**, e etapa separada `python -m compileall -q OpenTrace_BIM` `success`.
 - **Não confundir com funcionamento no host:** não houve execução do plugin no IngeTrazo nesta conversa, portanto a UI nova e os recortes de malha ainda são experimentais e o PR #5 continua rascunho.
 - **Próxima ação:** validação de runtime com paredes retas/curvas, portas no piso, abertura poligonal concava e inclinada, multicamadas, Undo/Redo, salvar/reabrir, contorno sem linhas fantasmas; corrigir resultados antes de liberar a etapa 02.
+
+## Execução autorizada — continuidade 01 e 02 (2026-10-09)
+
+**Decisão do mantenedor:** seguir desenvolvendo sem aguardar aprovação a cada subetapa, preparar pacote de teste da 01 e evoluir base técnica da 02 em branch independente; não mesclar na `main` nem publicar versão pública ou catálogo.
+
+### Etapa 01 (PR #5) — geometria + teste real de Mesh
+
+- A inspeção do IngeTrazo `core.mesh.Mesh` mostrou a necessidade de costurar subdivisões T-junction: faces laterais e requadros compartilham um vértice localizado no interior de aresta não subdividida, o que gerava **arestas abertas / não-manifold** apesar dos 31 testes Python anteriores aprovados.
+- Adicionado `OpenTrace_BIM/model.py::_stitch_opening_mesh` no commit `f0f808d`, usando `mesh.interior_vertex_on` + `mesh.split_edge_at` nativos para conectar faces; aplicado só aos geradores com aberturas, preservando o motor normal sem aberturas.
+- Testes de integração contra as classes **reais do IngeTrazo + PySide6**, fora da interface gráfica, em `tests_host/test_wall_mesh_host.py` e `.github/workflows/test-wall-mesh-host.yml`: janela retangular, porta acima da altura disponível, janela poligonal, abertura côncava, parede curva e topo inclinado. O primeiro teste acusou 4 falhas de topologia, que a costura corrigiu. [Run 37981091356](https://github.com/lelopes05/opentrace-bim/actions/runs/37981091356): **6 testes de integração OK** depois da correção.
+- Na sequência o caso da parede curva passou a utilizar **duas camadas físicas reais** no `build_children()` (commit `be8d906`), confirmadas por [run 37981235121](https://github.com/lelopes05/opentrace-bim/actions/runs/37981235121), `success`.
+- Packaging experimental automático **somente após sucesso do gate de malha**: workflow `test-wall-mesh-host.yml` ganhou job `package-experimental` no commit `fdc706f`. Gera `OpenTrace-BIM-Stage01-Aberturas-EXPERIMENTAL.zip`, `SHA256SUMS.txt` e `LEIA_PRIMEIRO.txt` como artefato GitHub Actions; nunca faz release ou atualiza catálogo. Pacote validado/concluído deve ser conferido no run atual antes de informar link para baixar.
+- **Ainda precisa de teste visual pelo usuário no IngeTrazo:** lançamento/seleção da nova ferramenta, prévia, edição de vértices/arestas, Undo/Redo, salvar/reabrir `.igz`, tramas/arestas visíveis nos cortes, IFC. Os testes headless comprovam topologia dos casos cobertos, não a UX completa.
+
+### Etapa 02 (PR #7) — base separada, sem UI ainda
+
+- Branch `dev/parametric-door-window-2026-10-09`, aberta como [PR #7](https://github.com/lelopes05/opentrace-bim/pull/7) contra a fundação #3, isolada dos commits da #5 para desenvolvimento paralelo.
+- `OpenTrace_BIM/door_window_core.py` (`de63c8e`): especificações JSON-safe, IDs da parede e abertura, `source_id`, âncoras esquerda/centro/direita, dimensão vinculada à âncora, comando único para inverter giro, folha/arco em planta, janela de vidro com montantes e controles de hotspot (largura em todos, altura somente superiores, posição somente inferiores). Não há objeto 3D nem ligação ao `setup()` nesta fase.
+- `tests/test_door_window_core.py` (`e9683ef`), workflow `test-door-window.yml` (`6d2a7f1`). [Run 37980967165](https://github.com/lelopes05/opentrace-bim/actions/runs/37980967165): **success** em testes Python e compileall. Registrar quantidade real dos testes a partir do log se necessário.
+- **Próximo desenvolvimento 02:** geração real de geometria de folhas/marcos em grupos separados, ligação ao vão da etapa 01 por ID e ferramenta de criação/edição com paleta/hotspots; depois IFC e persistência em `.igz`.
+
+**Regras preservadas:** não mesclar PRs rascunho sem aval; não confundir pacote experimental com release 0.12.9; PRs #3, #4, #5, #6 e #7 continuam com independência documentada.
