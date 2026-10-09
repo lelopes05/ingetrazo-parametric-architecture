@@ -814,6 +814,29 @@ def _lerp_side_point(bottom_xy, top_xy, base_z, top_z, z):
                      float(z))
 
 
+def _stitch_opening_mesh(mesh):
+    """Resolve T-junctions at wall voids using the real IngeTrazo mesh API.
+
+    Shared vertices at the middle of another face's long edge must split
+    that edge, otherwise neighbouring faces are not topologically connected.
+    """
+    pending = list(mesh.edges)
+    limit = max(256, 8 * len(pending))
+    splits = 0
+    while pending:
+        edge = pending.pop()
+        if edge not in mesh.edges:
+            continue
+        middle = mesh.interior_vertex_on(edge)
+        if middle is None:
+            continue
+        if splits >= limit:
+            raise WallError("Não foi possível conectar o contorno da abertura.")
+        result = mesh.split_edge_at(edge, middle)
+        pending.extend((result["e0"], result["e1"]))
+        splits += 1
+
+
 def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
     """Build a profiled straight/curved wall with hosted openings.
 
@@ -970,6 +993,7 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
                 face([side_at(i, "high", z1a), side_at(i+1, "high", z1b),
                       side_at(i+1, "low", z1b), side_at(i, "low", z1a)], "opening")
 
+    _stitch_opening_mesh(mesh)
     if previous is not None:
         transfer_semantic_face_appearance(previous.mesh, mesh, FACE_KEY,
                                           fallback_key="side",
@@ -1124,6 +1148,7 @@ def _build_body_with_polygon_openings(values, previous, path, caps, offsets, bod
                 add([side(i0,"low",p0[1]), side(i1,"low",p1[1]),
                      side(i1,"high",p1[1]), side(i0,"high",p0[1])], "opening")
 
+    _stitch_opening_mesh(mesh)
     if previous is not None:
         transfer_semantic_face_appearance(previous.mesh, mesh, FACE_KEY,
                                           fallback_key="side",
