@@ -27,8 +27,8 @@ class FillMeshTests(unittest.TestCase):
         positive = build_fill_parts(element("door", swing=1))
         negative = build_fill_parts(element("door", swing=-1))
         self.assertEqual(
-            sorted(p.toTuple() for p in positive[0].mesh.vertices), 
-            sorted(p.toTuple() for p in negative[0].mesh.vertices))
+            sorted(p.position.toTuple() for p in positive[0].mesh.vertices), 
+            sorted(p.position.toTuple() for p in negative[0].mesh.vertices))
         one_y = [v.position.y() for v in positive[-1].mesh.vertices]
         other_y = [v.position.y() for v in negative[-1].mesh.vertices]
         self.assertGreater(max(one_y), 0)
