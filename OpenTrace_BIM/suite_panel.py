@@ -25,6 +25,8 @@ class ArchitectureSuitePanel:
         self.app=app;self.controllers={"wall":wall,"slab":slab,"column":column,"beam":beam,"membrane":membrane,"profiles":profiles,"bim":bim}
         self._sync_queued=False;self._last_active_tool_id=id(getattr(self.app.viewport,"active_tool",None))
         self._mode_buttons={}
+        self._arrange_panel = None
+        self._arrange_dock = None
         self.panel=QWidget();self.panel.setMinimumSize(0,0)
         root=QVBoxLayout(self.panel);root.setContentsMargins(4,4,4,4);root.setSpacing(4)
         self.nav=QFrame();navlay=QHBoxLayout(self.nav);navlay.setContentsMargins(0,0,0,0);navlay.setSpacing(2)
@@ -35,6 +37,14 @@ class ArchitectureSuitePanel:
             navlay.addWidget(b);self.group.addButton(b);self.buttons[key]=b
         # Project information lives on its own page, outside the BIM
         # element inspector. Opening this page never starts a drawing tool.
+        self.arrange_button = QToolButton(self.nav)
+        self.arrange_button.setText("↔")
+        self.arrange_button.setToolTip("Alinhar e distribuir objetos em X, Y e Z")
+        self.arrange_button.setAccessibleName("Alinhar e distribuir objetos")
+        self.arrange_button.setAutoRaise(True)
+        self.arrange_button.setFixedSize(QSize(26, 26))
+        self.arrange_button.clicked.connect(self.open_arrange)
+        navlay.addWidget(self.arrange_button, 0, Qt.AlignTop)
         self.project_info_button = QToolButton(self.nav)
         self.project_info_button.setText("ⓘ")
         self.project_info_button.setToolTip("Informações do Projeto")
@@ -192,6 +202,27 @@ class ArchitectureSuitePanel:
         # obvious default instead of making the user click a second control.
         if key in ("wall","slab","column","beam"):
             self._activate_default(key)
+
+    def open_arrange(self):
+        # Lazy native dock creation. The modelling tool stays unchanged.
+        try:
+            if self._arrange_panel is None:
+                from .arrange_ui import ArrangePanel
+                panel = ArrangePanel(self.app)
+                dock = self.app.add_panel(
+                    "Alinhar e distribuir", panel, name="arrange")
+                self._arrange_panel = panel
+                self._arrange_dock = dock
+            self._arrange_panel.refresh()
+            try:
+                self.app.show_panel(self._arrange_dock)
+            except Exception:
+                self._arrange_dock.show()
+        except Exception as exc:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self.panel, "OpenTrace BIM",
+                f"Não foi possível abrir a paleta de alinhamento: {type(exc).__name__}: {exc}")
 
     def _auto_update_toggled(self, enabled):
         if enabled and self.update_manager is not None:
