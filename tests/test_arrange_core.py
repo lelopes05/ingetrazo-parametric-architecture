@@ -32,11 +32,11 @@ class AlignTests(unittest.TestCase):
 class DistributeTests(unittest.TestCase):
     def test_equal_clear_spaces_with_different_sizes(self):
         result = distribute_offsets(boxes(0, [(0, 1), (1.5, 3.5), (8, 9)]), 0)
-        self.assertEqual(result, [0.0, 1.0, 0.0])
+        self.assertEqual(result, [0.0, 2.0, 0.0])
 
     def test_works_regardless_of_selection_order(self):
         result = distribute_offsets(boxes(2, [(8, 9), (0, 1), (1.5, 3.5)]), 2)
-        self.assertEqual(result, [0.0, 0.0, 1.0])
+        self.assertEqual(result, [0.0, 0.0, 2.0])
 
     def test_rejects_overlap_when_objects_cannot_fit(self):
         with self.assertRaises(ValueError):
