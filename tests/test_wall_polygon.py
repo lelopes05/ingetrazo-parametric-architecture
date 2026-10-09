@@ -4,6 +4,7 @@ import unittest
 
 from OpenTrace_BIM.wall_polygon import (
     clip_to_wall, contains, cut_stations, normalize_polygon, scan_edges,
+    insert_vertex, move_edge, move_vertex, delete_vertex,
 )
 
 
@@ -46,6 +47,35 @@ class WallPolygonTests(unittest.TestCase):
 
     def test_outside_opening_edge_has_no_reveal(self):
         self.assertIsNone(clip_to_wall([1, 4], [2, 4], 4, [0, 0], [3, 3]))
+
+    def test_insert_and_delete_vertex_round_trip(self):
+        rect = [[1, 0.3], [3, 0.3], [3, 2], [1, 2]]
+        expanded = insert_vertex(rect, 0, [2, 0.9], 5)
+        self.assertEqual(len(expanded), 5)
+        self.assertAlmostEqual(expanded[1][1], 0.3)
+        self.assertEqual(delete_vertex(expanded, 1, 5), rect)
+
+    def test_vertex_edit_preserves_valid_simple_polygon(self):
+        rect = [[1, 0.3], [3, 0.3], [3, 2], [1, 2]]
+        new = move_vertex(rect, 2, [2.8, 2.2], 5)
+        self.assertEqual(new[2], [2.8, 2.2])
+        self.assertEqual(len(new), 4)
+
+    def test_edge_stretch_moves_both_endpoints_perpendicular(self):
+        rect = [[1, 0.3], [3, 0.3], [3, 2], [1, 2]]
+        new = move_edge(rect, 0, [0, 0.2], 5)
+        self.assertAlmostEqual(new[0][1], 0.5)
+        self.assertAlmostEqual(new[1][1], 0.5)
+        self.assertEqual(new[2:], rect[2:])
+
+    def test_reject_collapse_and_removal_below_three(self):
+        tri = [[1, 0.3], [3, 0.3], [2, 2]]
+        with self.assertRaises(ValueError):
+            delete_vertex(tri, 0, 5)
+        with self.assertRaises(ValueError):
+            insert_vertex(tri, 0, [1, 0.3], 5)
+        with self.assertRaises(ValueError):
+            move_vertex(tri, 2, [2, 0.3], 5)
 
     def test_door_floor_edge_is_coplanar(self):
         ends = clip_to_wall([1, 0], [2, 0], 4, [0, 0], [3, 3])
