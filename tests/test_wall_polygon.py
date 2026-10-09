@@ -27,6 +27,16 @@ class WallPolygonTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_polygon([[1, 0], [3, 2], [1, 2], [3, 0]], 4)
 
+    def test_adjacent_backtracking_is_rejected(self):
+        with self.assertRaises(ValueError):
+            normalize_polygon([[1, 0.2], [3, 0.2], [2, 0.2],
+                               [3, 2], [1, 2]], 5)
+
+    def test_submillimetre_edge_is_rejected(self):
+        with self.assertRaises(ValueError):
+            normalize_polygon([[1, 0.3], [1.0005, 0.3],
+                               [3, 0.3], [3, 2], [1, 2]], 5)
+
     def test_end_margin_rejected(self):
         with self.assertRaises(ValueError):
             normalize_polygon([[0, 0], [2, 0], [1, 2]], 4)
