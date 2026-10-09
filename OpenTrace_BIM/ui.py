@@ -17,10 +17,10 @@ from . import __version__
 from .commands import EditWall, MeetWalls, root_edit_allowed
 from .host import (ARC_TOOL_KEY, CURVED_WALL_TOOL_KEY, HEIGHT_TOOL_KEY, WALL_TOTAL_HEIGHT_TOOL_KEY, MOVE_XY_TOOL_KEY,
                    MOVE_Z_TOOL_KEY, MOVE_VERTEX_CONTINUE_TOOL_KEY, MOVE_VERTEX_FREE_TOOL_KEY,
-                   WALL_STATION_Z_TOOL_KEY, WALL_LEAN_TOOL_KEY, WALL_OPENING_TOOL_KEY,
+                   WALL_STATION_Z_TOOL_KEY, WALL_LEAN_TOOL_KEY, WALL_OPENING_TOOL_KEY, WALL_POLYGON_TOOL_KEY,
                    VERTEX_TOOL_KEY, activate_arc, activate_curved_wall, activate_height, activate_wall_total_height,
                    activate_move_vertex_continue, activate_move_vertex_free, activate_move_xy,
-                   activate_move_z, activate_wall_station_z, activate_wall_lean, activate_wall_opening,
+                   activate_move_z, activate_wall_station_z, activate_wall_lean, activate_wall_opening, activate_wall_polygon,
                    activate_select, activate_vertex_insert, activate_wall, register_tool, host_tool)
 from .levels import available_levels, level_by_name, sync_bound_wall_tops
 from .junctions import sync_wall_junctions
@@ -38,6 +38,7 @@ from .snaprefs import snap_to_wall_references, snap_to_wall_top_references, snap
 from .path_edit import (ArcWallTool, ChangeWallHeightTool, ConstrainedMoveWallTool,
                         InsertVertexTool, MoveWallVertexTool, MoveWallStationZTool, LeanWallTopTool, ChangeWholeWallHeightTool)
 from .wall_opening_tool import WallOpeningTool
+from .wall_polygon_tool import WallPolygonTool
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
 from .i18n import t, ui_locale
 from .icons import icon as pa_icon, set_symbol_icon
@@ -137,6 +138,7 @@ class WallController(QObject):
         self.station_z_tool = MoveWallStationZTool(self)
         self.lean_tool = LeanWallTopTool(self)
         self.opening_tool = WallOpeningTool(self)
+        self.polygon_tool = WallPolygonTool(self)
         self.arc_tool = ArcWallTool(self)
         self.move_vertex_free_tool = MoveWallVertexTool(self, "free")
         self.move_vertex_continue_tool = MoveWallVertexTool(self, "continue")
@@ -266,6 +268,25 @@ class WallController(QObject):
         self.opening_fill=QComboBox(self.opening_widget);self.opening_fill.addItem("Somente abertura",None);self.opening_fill.addItem("Porta IFC","IfcDoor");self.opening_fill.addItem("Janela IFC","IfcWindow")
         self.opening_fill.setToolTip("Opcional: preenche a abertura semanticamente com IfcDoor ou IfcWindow e exporta IfcRelFillsElement.")
         self.opening_fill.currentIndexChanged.connect(self.opening_changed);oform.addRow("Preenchimento IFC",self.opening_fill)
+        self.polygon_label=QLabel("Abertura livre: edição por vértices",self.opening_widget)
+        oform.addRow(self.polygon_label)
+        self.polygon_tools=QWidget(self.opening_widget)
+        polygon_row=QHBoxLayout(self.polygon_tools)
+        polygon_row.setContentsMargins(0,0,0,0)
+        polygon_row.setSpacing(4)
+        for symbol,description,operation in (
+            ("✥","Mover vértice","move_vertex"),
+            ("＋","Inserir vértice","insert_vertex"),
+            ("↔","Mover aresta","move_edge"),
+            ("−","Excluir vértice","delete_vertex"),
+        ):
+            btn=QToolButton(self.polygon_tools)
+            btn.setText(symbol)
+            btn.setToolTip(description + " da abertura livre")
+            btn.setFixedSize(32,32)
+            btn.clicked.connect(lambda _checked=False, mode=operation: self.edit_wall_polygon(mode))
+            polygon_row.addWidget(btn)
+        oform.addRow(self.polygon_tools)
         self.delete_opening_btn=QToolButton(self.opening_widget);set_symbol_icon(self.delete_opening_btn,"⊘",20);self.delete_opening_btn.setToolTip(t("Excluir esta abertura da parede."));self.delete_opening_btn.clicked.connect(self.delete_wall_opening);oform.addRow(t("Abertura hospedada"),self.delete_opening_btn)
         layout.addWidget(self.opening_widget);self.opening_widget.hide()
 
@@ -321,6 +342,7 @@ class WallController(QObject):
         register_tool(self.app, self.station_z_tool, key=WALL_STATION_Z_TOOL_KEY)
         register_tool(self.app, self.lean_tool, key=WALL_LEAN_TOOL_KEY)
         register_tool(self.app, self.opening_tool, key=WALL_OPENING_TOOL_KEY)
+        register_tool(self.app, self.polygon_tool, key=WALL_POLYGON_TOOL_KEY)
         register_tool(self.app, self.arc_tool, key=ARC_TOOL_KEY)
         register_tool(self.app, self.move_vertex_free_tool, key=MOVE_VERTEX_FREE_TOOL_KEY)
         register_tool(self.app, self.move_vertex_continue_tool, key=MOVE_VERTEX_CONTINUE_TOOL_KEY)
@@ -437,6 +459,10 @@ class WallController(QObject):
             "▣",
             t("Criar abertura retangular hospedada nesta parede."),
             self.begin_wall_opening)
+        self.polygon_btn = button(
+            "⬡",
+            "Desenhar abertura livre por vértices na face da parede.",
+            self.begin_wall_polygon)
 
         # Vertex-context operations.  The first is always free XY movement;
         # the second extends/trims along the current straight direction or
@@ -568,6 +594,7 @@ class WallController(QObject):
         self.total_height_btn.setVisible(kind == "height")
         self.arc_btn.setVisible(line and path_kind in ("line", "arc"))
         self.opening_btn.setVisible(line and path_kind in ("line", "arc"))
+        self.polygon_btn.setVisible(line and path_kind in ("line", "arc"))
         vertex = kind == "vertex" and path_kind in ("line", "arc")
         self.move_vertex_free_btn.setVisible(vertex)
         self.move_vertex_continue_btn.setVisible(vertex)
@@ -682,12 +709,48 @@ class WallController(QObject):
         activate_wall_opening(self.app)
         self.app.viewport.setFocus()
 
+    def begin_wall_polygon(self):
+        wall, anchor = self._palette_target()
+        self.hide_path_palette()
+        if wall is None:
+            return
+        self.polygon_tool.prepare(wall, anchor)
+        activate_wall_polygon(self.app)
+        self.app.viewport.setFocus()
+
+    def edit_wall_polygon(self, operation="move_vertex"):
+        if self.target is None or not self._active_opening_id:
+            return
+        try:
+            values = read_wall(self.target)
+            opening = next((x for x in values.get("openings", ())
+                            if x.get("id") == self._active_opening_id), None)
+            if not opening or opening.get("kind") != "polygon":
+                raise WallError("Selecione uma abertura livre para editar.")
+            origin = path_world(self.target)[0]
+            self.polygon_tool.prepare(self.target, origin,
+                                      opening_id=self._active_opening_id,
+                                      operation=operation)
+            activate_wall_polygon(self.app)
+            self.app.viewport.setFocus()
+        except WallError as exc:
+            self.message(str(exc), error=True)
+
     def _load_opening_fields(self, openings):
         ops=list(openings or [])
         if not ops:
             self._active_opening_id=None;self.opening_widget.hide();return
         item=next((x for x in ops if x.get("id")==self._active_opening_id),ops[0]);self._active_opening_id=item.get("id")
         self.opening_widget.show();blocked=[]
+        polygon = item.get("kind") == "polygon"
+        for f in self.opening_fields.values():
+            f.setVisible(not polygon)
+            label = self.opening_widget.layout().labelForField(f)
+            if label is not None:
+                label.setVisible(not polygon)
+        self.polygon_label.setVisible(polygon)
+        self.polygon_tools.setVisible(polygon)
+        self.opening_fill.setEnabled(not polygon)
         try:
             for key,f in self.opening_fields.items():blocked.append((f,f.blockSignals(True)));f.setValue(float(item.get(key,0.0)))
             oldb=self.opening_fill.blockSignals(True);fill=item.get("fill") if isinstance(item.get("fill"),dict) else {};cls=fill.get("class") or item.get("fill_class") or item.get("ifc_fill_class");idx=self.opening_fill.findData(cls);self.opening_fill.setCurrentIndex(idx if idx>=0 else 0);self.opening_fill.blockSignals(oldb)
@@ -699,6 +762,8 @@ class WallController(QObject):
         try:
             vals=read_wall(self.target);ops=copy.deepcopy(vals.get("openings",[]));item=next((x for x in ops if x.get("id")==self._active_opening_id),None)
             if item is None:return
+            if item.get("kind") == "polygon":
+                return  # Free cuts are edited by polygon vertices, not rectangular controls.
             for key,f in self.opening_fields.items():f.interpretText();item[key]=float(f.value())
             cls=self.opening_fill.currentData()
             if cls:

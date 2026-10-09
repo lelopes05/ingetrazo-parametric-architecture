@@ -1,0 +1,95 @@
+name: OpenTrace openings — real IngeTrazo mesh
+
+on:
+  push:
+    branches:
+      - dev/wall-openings-2026-10-09
+    paths:
+      - 'OpenTrace_BIM/**'
+      - 'tests_host/**'
+      - '.github/workflows/test-wall-mesh-host.yml'
+  workflow_dispatch:
+
+jobs:
+  host-mesh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout OpenTrace experimental source
+        uses: actions/checkout@v4
+        with:
+          path: plugin
+      - name: Checkout real IngeTrazo mesh implementation
+        uses: actions/checkout@v4
+        with:
+          repository: ingelibre/ingetrazo
+          path: ingetrazo
+      - name: Install Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Qt native runtime libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libopengl0 libxkbcommon0
+      - name: Install Qt bindings
+        run: python -m pip install 'PySide6>=6.9,<7'
+      - name: Run real geometry integration tests (headless)
+        working-directory: plugin
+        env:
+          PYTHONPATH: "${{ github.workspace }}/ingetrazo:${{ github.workspace }}/plugin"
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests_host -v
+
+  package-experimental:
+    name: Archive isolated experimental installer
+    needs: host-mesh
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make isolated OpenTrace_BIM folder ZIP with checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cat > OpenTrace_BIM/EXPERIMENTAL_STAGE01.txt <<EOF
+          OPENTRACE BIM — ETAPA 01 / ABERTURAS — PACOTE EXPERIMENTAL
+          Git revision: ${GITHUB_SHA}
+          Ramo: dev/wall-openings-2026-10-09
+          NÃO É A VERSÃO PÚBLICA / NÃO MESCLAR NO CATÁLOGO.
+          Esta extensão contém testes de aberturas poligonais, portas no piso
+          e algoritmo de costura de vértices na malha.
+          Não use como única cópia de um projeto importante.
+          Para reverter, restaure sua cópia de OpenTrace_BIM anterior.
+          EOF
+          zip -q -r dist/OpenTrace-BIM-Stage01-Aberturas-EXPERIMENTAL.zip OpenTrace_BIM \
+            -x '*/__pycache__/*' '*.pyc' '*.pyo'
+          cd dist
+          sha256sum OpenTrace-BIM-Stage01-Aberturas-EXPERIMENTAL.zip > SHA256SUMS.txt
+          cat > LEIA_PRIMEIRO.txt <<EOF
+          PACOTE EXPERIMENTAL — OpenTrace BIM — Etapa 01
+          Commit testado: ${GITHUB_SHA}
+
+          INSTALAÇÃO MANUAL APENAS PARA TESTE LOCAL NO INGETRAZO:
+          1. Feche o IngeTrazo.
+          2. Faça cópia de segurança da pasta OpenTrace_BIM atual.
+          3. Descompacte o ZIP e copie a pasta OpenTrace_BIM inteira
+             para a pasta de plugins/extensões do IngeTrazo, substituindo
+             SOMENTE sua pasta OpenTrace_BIM anterior.
+          4. Abra o IngeTrazo e use um projeto descartável para testar.
+          5. Se houver problema, feche e restaure a pasta anterior.
+
+          NÃO publique, suba ao catálogo nem utilize esta build em produção.
+          O número interno da versão permanece 0.12.9 por compatibilidade:
+          o identificador verdadeiro desta build é o SHA acima.
+          Os testes automatizados não validam a UI/renderização gráfica.
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenTrace-BIM-Stage01-Aberturas-EXPERIMENTAL
+          path: dist/*
+          retention-days: 30
+          if-no-files-found: error
