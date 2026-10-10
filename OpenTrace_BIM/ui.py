@@ -1010,9 +1010,8 @@ class WallController(QObject):
             return
         # Make edits through the authored wall command at the root. The
         # host handles exiting/restoring nested transforms and undo state.
-        vp=self.app.viewport
         if getattr(self.app.scene,"edit_group",None) is wall:
-            vp.end_group_edit()
+            self.app.viewport.end_group_edit()
         self._active_opening_wall=wall
         self._active_opening_id=oid
         self._loaded_key=None
