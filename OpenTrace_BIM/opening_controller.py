@@ -24,10 +24,19 @@ def _context(wall, values):
 
 def _vertex(station, rise, side, cumulative, values, origin_z):
     length = cumulative[-1]
-    s = max(0.0, min(length, float(station)))
-    base, _, _ = profile_at_fraction(values, s / length)
-    p = _side_point_at_reference_distance(side, cumulative, s)
-    return QVector3D(p.x(), p.y(), origin_z + base + float(rise))
+    requested=float(station)
+    s=max(0.0,min(length,requested))
+    base,_,_=profile_at_fraction(values,s/length)
+    p=_side_point_at_reference_distance(side,cumulative,s)
+    # The virtual controller is independent of the current host's mesh.
+    # Continue the final reference tangent beyond a receded end so an
+    # inactive opening is STILL visible/pickable/editable and can be moved
+    # back into the wall. Do not modify the physical cut to display this.
+    if requested < 0.0 and cumulative[1]>cumulative[0]:
+        p=p+(side[1]-side[0])*(requested/(cumulative[1]-cumulative[0]))
+    elif requested > length and cumulative[-1]>cumulative[-2]:
+        p=p+(side[-1]-side[-2])*((requested-length)/(cumulative[-1]-cumulative[-2]))
+    return QVector3D(p.x(),p.y(),origin_z+base+float(rise))
 
 
 def opening_wire(wall, values, opening, *, context=None):
@@ -54,11 +63,16 @@ def opening_wire(wall, values, opening, *, context=None):
         grips = [(f"vertex-{i}", p) for i, p in enumerate(near)]
         return lines, grips
 
-    intervals = wall_opening_intervals(dict(values, openings=[opening]), points)
-    if not intervals:
-        return [], []
-    item = intervals[0]
-    s0, s1 = float(item["s0"]), float(item["s1"])
+    intervals=wall_opening_intervals(dict(values,openings=[opening]),points)
+    # Draw the full logical cutter when its physical intersection has been
+    # clipped away at the wall end. The ghost outline remains editable.
+    if not intervals or intervals[0].get("cut_clipped"):
+        position=float(opening["position"])
+        half=float(opening["width"])*.5
+        s0,s1=position-half,position+half
+    else:
+        item=intervals[0]
+        s0,s1=float(item["s0"]),float(item["s1"])
     sill, height = float(item["sill"]), float(item["height"])
     stations = (s0, s1)
     near_bottom = [_vertex(s, sill, low, cumulative, values, origin_z) for s in stations]
