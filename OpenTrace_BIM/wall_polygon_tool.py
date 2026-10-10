@@ -22,7 +22,8 @@ from .model import (
     read_wall, wall_opening_intervals, wall_path_kind,
 )
 from .wall_polygon import (normalize_polygon, insert_vertex, move_vertex,
-                           move_edge, delete_vertex, translate_polygon, stretch_edge)
+                           move_edge, delete_vertex, translate_polygon,
+                           stretch_edge, rectangle_to_polygon)
 
 
 class WallPolygonTool(Tool):
@@ -50,12 +51,14 @@ class WallPolygonTool(Tool):
         self.pick_anchor = None
         self.operation = "move_vertex"
         self.preset_index = None
+        self.convert_rect = False
         self.reference_path = []
         self.cumulative = []
         self.values = None
         self.plane_station = 0.0
 
-    def prepare(self, wall, anchor, opening_id=None, operation="move_vertex", index=None):
+    def prepare(self, wall, anchor, opening_id=None, operation="move_vertex",
+                index=None, convert_rect=False):
         self.reset()
         self.wall = wall
         self.anchor = QVector3D(anchor)
@@ -63,6 +66,7 @@ class WallPolygonTool(Tool):
         self.opening_id = opening_id
         self.operation = operation
         self.preset_index = index
+        self.convert_rect = bool(convert_rect)
         self.start_point = QVector3D(anchor)
 
     def on_activate(self, viewport):
@@ -79,9 +83,14 @@ class WallPolygonTool(Tool):
             if self.mode == "edit":
                 opening = next((o for o in self.values.get("openings", [])
                                 if o.get("id") == self.opening_id), None)
-                if opening is None or opening.get("kind") != "polygon":
-                    raise WallError("A abertura poligonal selecionada não está disponível.")
-                self.points = [list(p) for p in opening["polygon"]]
+                if opening is None:
+                    raise WallError("A abertura selecionada não está disponível.")
+                if opening.get("kind") == "polygon":
+                    self.points=[list(p) for p in opening["polygon"]]
+                elif opening.get("kind") == "rect" and self.convert_rect:
+                    self.points=rectangle_to_polygon(opening,self.values["length"])
+                else:
+                    raise WallError("Este vão não permite edição livre de vértices.")
                 self.plane_station = sum(p[0] for p in self.points)/len(self.points)
                 # Like slab_opening_edit, a clicked logical vertex/edge
                 # stays identified when the palette arms the operation.
@@ -209,7 +218,7 @@ class WallPolygonTool(Tool):
         if replace:
             for i, existing in enumerate(vals["openings"]):
                 if existing.get("id") == self.opening_id:
-                    op = dict(existing, polygon=polygon,
+                    op = dict(existing, kind="polygon", polygon=polygon,
                               edges=[{"type": "line"} for _ in polygon])
                     vals["openings"][i] = op
                     break
