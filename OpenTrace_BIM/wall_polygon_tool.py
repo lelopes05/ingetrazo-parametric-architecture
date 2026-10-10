@@ -61,17 +61,22 @@ class WallPolygonTool(Tool):
                 index=None, convert_rect=False):
         self.reset()
         self.wall = wall
-        self.anchor = QVector3D(anchor)
+        self.anchor = QVector3D(anchor) if anchor is not None else None
         self.mode = "edit" if opening_id else "create"
         self.opening_id = opening_id
         self.operation = operation
         self.preset_index = index
         self.convert_rect = bool(convert_rect)
-        self.start_point = QVector3D(anchor)
+        self.start_point = QVector3D(anchor) if anchor is not None else None
 
     def on_activate(self, viewport):
         try:
-            if self.wall is None or self.wall not in viewport.scene.groups:
+            if self.wall is None:
+                self.controller.message(
+                    "Clique sobre a parede para iniciar o contorno da abertura.")
+                viewport.update()
+                return
+            if self.wall not in viewport.scene.groups:
                 raise WallError("Selecione uma parede válida.")
             if wall_path_kind(self.wall) not in ("line", "arc"):
                 raise WallError("Selecione uma parede reta ou curva circular.")
@@ -251,8 +256,26 @@ class WallPolygonTool(Tool):
                                 "Abertura livre criada na parede.")
         return True
 
+    def _acquire_host(self, ctx):
+        if self.values is not None:
+            return True
+        vp=ctx.viewport
+        pick=getattr(vp,"pick_group",None)
+        if not callable(pick):
+            return False
+        wall=pick(ctx.screen.x(),ctx.screen.y())
+        from .model import wall_record
+        if wall is None or wall_record(wall) is None:
+            return False
+        if (not vp.scene.entity_selectable(wall)
+                or not vp.scene.entity_visible(wall)):
+            return False
+        self.prepare(wall,ctx.world)
+        self.on_activate(vp)
+        return self.values is not None
+
     def on_hover(self, ctx):
-        if self.values is None:
+        if self.values is None and not self._acquire_host(ctx):
             return
         self.plane_station = nearest_path_distance_world(self.wall, ctx.world)
         self.hover = self._local(ctx.world)
@@ -287,7 +310,9 @@ class WallPolygonTool(Tool):
         QTimer.singleShot(0,self.controller.return_to_select)
 
     def on_click(self, ctx):
-        if self.values is None:
+        if self.values is None and not self._acquire_host(ctx):
+            self.controller.message("Clique numa parede paramétrica para criar o vão.",
+                                    error=True)
             return
         local=self._local(ctx.world)
         self.plane_station=local[0]
