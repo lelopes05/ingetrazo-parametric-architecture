@@ -17,11 +17,11 @@ from . import __version__
 from .commands import EditWall, MeetWalls, root_edit_allowed
 from .host import (ARC_TOOL_KEY, CURVED_WALL_TOOL_KEY, HEIGHT_TOOL_KEY, WALL_TOTAL_HEIGHT_TOOL_KEY, MOVE_XY_TOOL_KEY,
                    MOVE_Z_TOOL_KEY, MOVE_VERTEX_CONTINUE_TOOL_KEY, MOVE_VERTEX_FREE_TOOL_KEY,
-                   WALL_STATION_Z_TOOL_KEY, WALL_LEAN_TOOL_KEY, WALL_OPENING_TOOL_KEY, WALL_POLYGON_TOOL_KEY,
+                   WALL_STATION_Z_TOOL_KEY, WALL_LEAN_TOOL_KEY, WALL_OPENING_TOOL_KEY, WALL_POLYGON_TOOL_KEY, WALL_OPENING_HANDLE_DRAG_TOOL_KEY,
                    VERTEX_TOOL_KEY, activate_arc, activate_curved_wall, activate_height, activate_wall_total_height,
                    activate_move_vertex_continue, activate_move_vertex_free, activate_move_xy,
                    activate_move_z, activate_wall_station_z, activate_wall_lean, activate_wall_opening, activate_wall_polygon,
-                   activate_select, activate_vertex_insert, activate_wall, register_tool, host_tool)
+                   activate_select, activate_vertex_insert, activate_wall, register_tool, host_tool, activate_opening_handle_drag)
 from .levels import available_levels, level_by_name, sync_bound_wall_tops
 from .junctions import sync_wall_junctions
 from .layer_intersections import intersection_group as wall_intersection_group
@@ -40,6 +40,7 @@ from .path_edit import (ArcWallTool, ChangeWallHeightTool, ConstrainedMoveWallTo
 from .wall_opening_tool import WallOpeningTool
 from .wall_polygon_tool import WallPolygonTool
 from .opening_controller import all_opening_wires, hit_test
+from .opening_handle_drag import OpeningHandleDragTool
 from .overlay_safety import visible_pixel, visible_segment
 from .door_window_commands import EditHostedFill, DeleteHostedOpening, reverse_hosted_door, sync_hosted_fill_placements, _fill_record
 from .door_window_core import edit_from_hotspot, normalize_fill, reanchor_fill
@@ -183,6 +184,7 @@ class WallController(QObject):
         self.lean_tool = LeanWallTopTool(self)
         self.opening_tool = WallOpeningTool(self)
         self.polygon_tool = WallPolygonTool(self)
+        self.opening_drag_tool = OpeningHandleDragTool(self)
         self.arc_tool = ArcWallTool(self)
         self.move_vertex_free_tool = MoveWallVertexTool(self, "free")
         self.move_vertex_continue_tool = MoveWallVertexTool(self, "continue")
@@ -409,6 +411,7 @@ class WallController(QObject):
         register_tool(self.app, self.lean_tool, key=WALL_LEAN_TOOL_KEY)
         register_tool(self.app, self.opening_tool, key=WALL_OPENING_TOOL_KEY)
         register_tool(self.app, self.polygon_tool, key=WALL_POLYGON_TOOL_KEY)
+        register_tool(self.app, self.opening_drag_tool, key=WALL_OPENING_HANDLE_DRAG_TOOL_KEY)
         register_tool(self.app, self.arc_tool, key=ARC_TOOL_KEY)
         register_tool(self.app, self.move_vertex_free_tool, key=MOVE_VERTEX_FREE_TOOL_KEY)
         register_tool(self.app, self.move_vertex_continue_tool, key=MOVE_VERTEX_CONTINUE_TOOL_KEY)
@@ -1099,6 +1102,16 @@ class WallController(QObject):
         except (WallError,ValueError,StopIteration) as exc:
             self.message(str(exc),error=True)
 
+    def _start_opening_handle_drag(self,oid,handle_id,action):
+        try:
+            if self.target is None:
+                raise WallError("Selecione o vão primeiro.")
+            self.opening_drag_tool.prepare(self.target,oid,handle_id,action)
+            activate_opening_handle_drag(self.app)
+            self.app.viewport.setFocus()
+        except (WallError,ValueError) as exc:
+            self.message(str(exc),error=True)
+
     def _show_opening_handle_menu(self,oid,handle_id,point):
         menu=QMenu(self.app.window)
         if handle_id.startswith("vertex-"):
@@ -1110,8 +1123,10 @@ class WallController(QObject):
         else:
             actions=("width","position") if handle_id.startswith("bottom-") else ("width","height")
             for action in actions:
-                title={"width":"Alterar largura","position":"Mover posição","height":"Alterar altura"}[action]
-                menu.addAction(title,lambda checked=False,a=action:
+                title={"width":"Largura","position":"Posição","height":"Altura"}[action]
+                menu.addAction("Puxar: "+title,lambda checked=False,a=action:
+                               self._start_opening_handle_drag(oid,handle_id,a))
+                menu.addAction("Digitar: "+title,lambda checked=False,a=action:
                                self._change_opening_handle(oid,handle_id,a))
         menu.popup(point)
 
