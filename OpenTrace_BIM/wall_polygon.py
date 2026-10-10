@@ -35,8 +35,13 @@ def _intersect(a, b, c, d):
     return False
 
 
-def normalize_polygon(raw, length, margin=0.02):
-    """Validate a simple non-degenerate opening inside the wall's end margins."""
+def normalize_polygon(raw, length, margin=0.02, *, allow_outside=False):
+    """Validate an authored polygon, without silently resizing its vertices.
+
+    The creation tool still requires points inside the wall. Existing cutters
+    may extend beyond a host after the user recedes that host: these continue
+    to be valid authored geometry and are clipped only during meshing.
+    """
     if not isinstance(raw, (tuple, list)) or len(raw) < 3:
         raise ValueError("A abertura precisa de ao menos três vértices.")
     if not math.isfinite(float(length)) or length <= 2*margin:
@@ -51,7 +56,7 @@ def normalize_polygon(raw, length, margin=0.02):
             raise ValueError("Coordenadas inválidas na abertura.") from exc
         if not math.isfinite(x) or not math.isfinite(z):
             raise ValueError("Coordenadas não finitas na abertura.")
-        if x <= margin or x >= length-margin:
+        if not allow_outside and (x <= margin or x >= length-margin):
             raise ValueError("A abertura deve respeitar os extremos da parede.")
         if z < 0:
             raise ValueError("A altura da abertura não pode ficar abaixo da base.")
@@ -79,6 +84,47 @@ def normalize_polygon(raw, length, margin=0.02):
             if _intersect(pts[i], pts[(i+1)%n], pts[j], pts[(j+1)%n]):
                 raise ValueError("A abertura não pode cruzar suas próprias arestas.")
     return [[x, z] for x, z in pts]
+
+
+
+def clip_polygon_stations(points, length):
+    """Effective intersection of a persistent 2D cutter and [0, host_length].
+
+    Clipped boundary edges are VIRTUAL, not reveal faces: wall endpoint caps
+    remain open where the cutter intersects them. The authored points never
+    change, and a fully external opening returns no physical polygon.
+    """
+    polygon=[list(map(float,pt)) for pt in points]
+    for bound,keep_above in ((0.0,True),(float(length),False)):
+        if not polygon:
+            break
+        result=[]
+        previous=polygon[-1]
+        for current in polygon:
+            inside_prev=(previous[0]>=bound-EPS if keep_above
+                         else previous[0]<=bound+EPS)
+            inside_cur=(current[0]>=bound-EPS if keep_above
+                        else current[0]<=bound+EPS)
+            if inside_prev != inside_cur:
+                dx=current[0]-previous[0]
+                if abs(dx)>EPS:
+                    t=(bound-previous[0])/dx
+                    result.append([bound,previous[1]+t*(current[1]-previous[1])])
+            if inside_cur:
+                result.append(list(current))
+            previous=current
+        polygon=[]
+        for point in result:
+            if not polygon or math.dist(polygon[-1],point)>EPS:
+                polygon.append(point)
+        if len(polygon)>1 and math.dist(polygon[0],polygon[-1])<=EPS:
+            polygon.pop()
+    if len(polygon)<3:
+        return []
+    area=sum(polygon[i][0]*polygon[(i+1)%len(polygon)][1]-
+             polygon[(i+1)%len(polygon)][0]*polygon[i][1]
+             for i in range(len(polygon)))*.5
+    return polygon if abs(area)>EPS else []
 
 
 def edge_height(points, index, station):
@@ -168,7 +214,7 @@ def project_to_edge(points, edge_index, point):
     return [a[0]+u*dx, a[1]+u*dz], u
 
 
-def insert_vertex(points, edge_index, point, length):
+def insert_vertex(points, edge_index, point, length, *, allow_outside=False):
     """Split a polygon edge at the projected location."""
     n = len(points)
     if n < 3:
@@ -179,17 +225,17 @@ def insert_vertex(points, edge_index, point, length):
         raise ValueError("Insira o vértice afastado das extremidades da aresta.")
     updated = [list(p) for p in points]
     updated.insert(index+1, projected)
-    return normalize_polygon(updated, length)
+    return normalize_polygon(updated, length, allow_outside=allow_outside)
 
 
-def move_vertex(points, vertex_index, point, length):
+def move_vertex(points, vertex_index, point, length, *, allow_outside=False):
     """Move exactly one local vertex and revalidate the boundary."""
     updated = [list(p) for p in points]
     updated[vertex_index % len(updated)] = list(point)
-    return normalize_polygon(updated, length)
+    return normalize_polygon(updated, length, allow_outside=allow_outside)
 
 
-def move_edge(points, edge_index, delta, length):
+def move_edge(points, edge_index, delta, length, *, allow_outside=False):
     """Translate one edge perpendicular to itself, moving both endpoints."""
     n = len(points)
     index = edge_index % n
@@ -204,13 +250,62 @@ def move_edge(points, edge_index, delta, length):
     for i in (index, (index+1) % n):
         updated[i] = [points[i][0]+normal[0]*magnitude,
                       points[i][1]+normal[1]*magnitude]
-    return normalize_polygon(updated, length)
+    return normalize_polygon(updated, length, allow_outside=allow_outside)
 
 
-def delete_vertex(points, index, length):
+
+def rectangle_to_polygon(opening, length):
+    """Editable wall-elevation corners for a free rectangular void.
+
+    Converting at the FIRST real vertex/edge commit is atomic with the edit.
+    It never converts live IfcDoor/IfcWindow fills, which need their own
+    parametric width/sill/height controls to stay hosted.
+    """
+    if opening.get("source_id") or opening.get("fill"):
+        raise ValueError("Esquadria hospedada não pode ser convertida em vão livre.")
+    position=float(opening["position"])
+    half=float(opening["width"])*.5
+    sill=float(opening["sill"])
+    top=sill+float(opening["height"])
+    return normalize_polygon([
+        [position-half,sill],[position+half,sill],
+        [position+half,top],[position-half,top]],
+        length,allow_outside=True)
+
+
+def translate_polygon(points, delta, length, *, allow_outside=True):
+    """Move the whole authored opening in wall station/elevation coordinates."""
+    dx,dz=map(float,delta)
+    return normalize_polygon([[float(x)+dx,float(z)+dz] for x,z in points],
+                             length,allow_outside=allow_outside)
+
+
+def stretch_edge(points, edge_index, delta, length, *, allow_outside=True):
+    """Slab-style extrude: preserve the old edge as anchoring vertices.
+
+    Adds exactly two corners and a displaced copy of the selected edge.
+    """
+    n=len(points);i=int(edge_index)%n;j=(i+1)%n
+    ax,az=map(float,points[i]);bx,bz=map(float,points[j])
+    dx,dz=bx-ax,bz-az
+    norm=math.hypot(dx,dz)
+    if norm<0.001:
+        raise ValueError("A aresta precisa ter pelo menos 1 mm.")
+    nx,nz=-dz/norm,dx/norm
+    distance=float(delta[0])*nx+float(delta[1])*nz
+    if abs(distance)<0.001:
+        raise ValueError("Arraste a aresta ao menos 1 mm.")
+    shifted_a=[ax+nx*distance,az+nz*distance]
+    shifted_b=[bx+nx*distance,bz+nz*distance]
+    rotated=[list(points[(i+k)%n]) for k in range(n)]
+    expanded=[rotated[0],shifted_a,shifted_b,rotated[1]]+rotated[2:]
+    return normalize_polygon(expanded,length,allow_outside=allow_outside)
+
+
+def delete_vertex(points, index, length, *, allow_outside=False):
     """Remove one vertex, never reducing an opening below three vertices."""
     if len(points) <= 3:
         raise ValueError("A abertura deve conservar pelo menos três vértices.")
     updated = [list(p) for p in points]
     del updated[index % len(updated)]
-    return normalize_polygon(updated, length)
+    return normalize_polygon(updated, length, allow_outside=allow_outside)

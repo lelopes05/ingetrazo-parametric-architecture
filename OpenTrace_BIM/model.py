@@ -7,6 +7,7 @@ readable so old test files can be opened and migrated by the split command.
 """
 from __future__ import annotations
 
+import bisect
 import copy
 import math
 
@@ -79,7 +80,7 @@ def normalize_wall_openings(raw, length, height):
                         for e in edges)):
                 raise WallError("Arestas curvas da abertura poligonal ainda não são suportadas.")
             try:
-                polygon = normalize_polygon(pts_raw, length)
+                polygon = normalize_polygon(pts_raw, length, allow_outside=True)
             except (ValueError, TypeError, OverflowError) as exc:
                 raise WallError(str(exc)) from exc
             # Wall clearance may be sloped. Test actual base/top profiles
@@ -101,8 +102,12 @@ def normalize_wall_openings(raw, length, height):
             raise WallError("Abertura da parede contém medidas inválidas.") from exc
         if width < MIN_DIM or oh < MIN_DIM:
             raise WallError("Largura livre e altura da abertura devem ser positivas.")
-        if not MIN_DIM < pos < length-MIN_DIM:
-            raise WallError("A abertura precisa ficar entre os extremos da parede.")
+        # Host edits may shorten a wall through an existing opening.
+        # Preserve the opening's authored station/size and IFC identity even
+        # when the host only partially intersects it (or not at all).
+        # Placement tools enforce in-wall positions when creating NEW voids.
+        if pos < 0.0:
+            raise WallError("A posição da abertura não pode ser negativa.")
         # Doors may touch the wall base, and a nominal door taller than the
         # local wall must not delete the wall. The generator clips the head
         # at the available local top. Keep openings beginning above the
@@ -666,20 +671,18 @@ def _point_on_path_distance(points, cumulative, distance):
     if len(points)==1 or cumulative[-1] <= 1.0e-12:
         return QVector3D(points[0])
     d=max(0.0,min(cumulative[-1],float(distance)))
-    for i,(a,b) in enumerate(zip(cumulative,cumulative[1:])):
-        if d <= b + 1.0e-12:
-            u=0.0 if b<=a else (d-a)/(b-a)
-            return points[i]+(points[i+1]-points[i])*u
-    return QVector3D(points[-1])
+    i=max(0,min(len(points)-2,bisect.bisect_left(cumulative,d+1.0e-12)-1))
+    a,b=cumulative[i],cumulative[i+1]
+    u=0.0 if b<=a else max(0.0,min(1.0,(d-a)/(b-a)))
+    return points[i]+(points[i+1]-points[i])*u
 
 def _side_point_at_reference_distance(side, ref_cum, distance):
     """Interpolate an offset side using the reference-path parameterization."""
     d=max(0.0,min(ref_cum[-1],float(distance)))
-    for i,(a,b) in enumerate(zip(ref_cum,ref_cum[1:])):
-        if d <= b + 1.0e-12:
-            u=0.0 if b<=a else (d-a)/(b-a)
-            return side[i]+(side[i+1]-side[i])*u
-    return QVector3D(side[-1])
+    i=max(0,min(len(side)-2,bisect.bisect_left(ref_cum,d+1.0e-12)-1))
+    a,b=ref_cum[i],ref_cum[i+1]
+    u=0.0 if b<=a else max(0.0,min(1.0,(d-a)/(b-a)))
+    return side[i]+(side[i+1]-side[i])*u
 
 def wall_opening_intervals(values, path):
     """Return hosted opening spans along the reference path.
@@ -699,45 +702,89 @@ def wall_opening_intervals(values, path):
     result=[]
     for o in ops:
         if o.get("kind") == "polygon":
-            from .wall_polygon import clip_to_wall
-            polygon = o["polygon"]
-            if not any(clip_to_wall(a, b, L, p["base_profile"],
-                                    p["top_profile"]) is not None
-                       for a, b in zip(polygon, polygon[1:]+polygon[:1])):
-                raise WallError("A abertura poligonal não intercepta a parede.")
-            stations = [float(x) for x, _ in polygon]
-            s0, s1 = min(stations), max(stations)
-            if not margin < s0 < s1 < L-margin:
-                raise WallError("A abertura poligonal deve respeitar os extremos da parede.")
-            result.append(dict(o, s0=s0, s1=s1, reference_span=s1-s0))
+            from .wall_polygon import clip_polygon_stations, clip_to_wall
+            polygon=clip_polygon_stations(o["polygon"],L)
+            if not polygon:
+                continue
+            # A head-above-wall cutter is still a valid logical opening but
+            # creates no physical mesh when it cannot intersect wall material.
+            stations=[float(x) for x,_ in polygon]
+            s0,s1=min(stations),max(stations)
+            if s1-s0 <= 1.e-9:
+                continue
+            # Keep IFC/source identity and ORIGINAL polygon untouched.
+            result.append(dict(o,s0=s0,s1=s1,reference_span=s1-s0,
+                               cut_polygon=polygon,
+                               cut_clipped=len(polygon)!=len(o["polygon"]) or
+                               any(abs(float(a[0])-float(b[0]))>1e-7 or
+                                   abs(float(a[1])-float(b[1]))>1e-7
+                                   for a,b in zip(polygon,o["polygon"]))))
             continue
         pos=float(o["position"]);width=float(o["width"])
-        if not margin < pos < L-margin:
-            raise WallError("A abertura precisa ficar afastada dos extremos da parede.")
+        # The logical cutter exists independently of the wall ends.
+        # The *effective* cut is just the intersection with [0, L].
+        # Never shrink/translate the stored cutter as a side effect of
+        # changing the wall length; growing the wall restores the full void.
+        lo=pos-width*0.5
+        hi=pos+width*0.5
+        if hi <= 1.0e-9 or lo >= L-1.0e-9:
+            continue  # no physical cut; the opening remains in wall data
+        if len(pts)==2:
+            cut_a=max(0.0,lo)
+            cut_b=min(L,hi)
+            if cut_b-cut_a > 1.0e-9:
+                result.append(dict(o,s0=cut_a,s1=cut_b,
+                                   reference_span=width,
+                                   cut_clipped=(cut_a>lo+1e-9 or cut_b<hi-1e-9)))
+            continue
+        # Curved openings retain free-width semantics whenever their entire
+        # nominal span fits. At a boundary, use the remaining *visible*
+        # reference arc; the authored width does not mutate.
+        margin=max(0.02,MIN_DIM*5)
+        if (pos-margin<=0 or L-pos-margin<=0 or
+                width*0.5 > min(pos-margin,L-pos-margin)):
+            cut_a=max(0.0,lo)
+            cut_b=min(L,hi)
+            if cut_b-cut_a > 1.0e-9:
+                result.append(dict(o,s0=cut_a,s1=cut_b,
+                                   reference_span=width,cut_clipped=True))
+            continue
         max_half=min(pos-margin,L-pos-margin)
-        if max_half <= MIN_DIM:
-            raise WallError("Não há espaço suficiente para esta abertura na parede.")
         def free_chord(half):
             a=pos-half;b=pos+half
             la=_side_point_at_reference_distance(side_low,ref_cum,a);lb=_side_point_at_reference_distance(side_low,ref_cum,b)
             ha=_side_point_at_reference_distance(side_high,ref_cum,a);hb=_side_point_at_reference_distance(side_high,ref_cum,b)
             return min((lb-la).length(),(hb-ha).length())
-        # Find the first crossing instead of assuming chord length stays
-        # monotonic over a very long arc (past a semicircle it can decrease).
-        lo=0.0;hi=None;prev=0.0
+        lo_half=0.0
+        hi_half=None
+        prev=0.0
         for step in range(1,129):
             h=max_half*(step/128.0)
-            if free_chord(h) >= width-1.0e-9:
-                lo=prev;hi=h;break
+            if free_chord(h)>=width-1.0e-9:
+                lo_half=prev
+                hi_half=h
+                break
             prev=h
-        if hi is None:
-            raise WallError(f"A Largura Livre no menor Vão ({width:.3f} m) não cabe nesta posição da parede.")
-        for _ in range(48):
-            mid=(lo+hi)*0.5
-            if free_chord(mid) < width:lo=mid
-            else:hi=mid
-        half=(lo+hi)*0.5
-        result.append(dict(o,s0=pos-half,s1=pos+half,reference_span=2.0*half))
+        if hi_half is None:
+            # The desired opening is wider than the remaining wall: clip
+            # rather than blocking the host edit.
+            cut_a=max(0.0,lo)
+            cut_b=min(L,hi)
+            if cut_b-cut_a > 1.0e-9:
+                result.append(dict(o,s0=cut_a,s1=cut_b,
+                                   reference_span=width,cut_clipped=True))
+            continue
+        for _ in range(36):
+            if hi_half-lo_half<1e-9:
+                break
+            mid=(lo_half+hi_half)*0.5
+            if free_chord(mid)<width:
+                lo_half=mid
+            else:
+                hi_half=mid
+        half=(lo_half+hi_half)*0.5
+        result.append(dict(o,s0=pos-half,s1=pos+half,
+                           reference_span=2.0*half,cut_clipped=False))
     result.sort(key=lambda x:x["s0"])
     for a,b in zip(result,result[1:]):
         if b["s0"] < a["s1"]-1.0e-8:
@@ -820,6 +867,13 @@ def _stitch_opening_mesh(mesh):
     Shared vertices at the middle of another face's long edge must split
     that edge, otherwise neighbouring faces are not topologically connected.
     """
+    # IngeTrazo's interior_vertex_on linearly scans EVERY vertex per edge.
+    # Curved multi-layer cuts contain thousands of edges, producing O(E*V)
+    # rebuilds. Index once by x; a split only reuses existing vertices, so
+    # the index stays valid. Keep the host's exact 0.0001 m tolerance/criterion.
+    vertices = sorted(mesh.vertices, key=lambda v: v.position.x())
+    xs = [v.position.x() for v in vertices]
+    tol = 1.0e-4
     pending = list(mesh.edges)
     limit = max(256, 8 * len(pending))
     splits = 0
@@ -827,7 +881,23 @@ def _stitch_opening_mesh(mesh):
         edge = pending.pop()
         if edge not in mesh.edges:
             continue
-        middle = mesh.interior_vertex_on(edge)
+        a, b = edge.v0.position, edge.v1.position
+        ab = b-a
+        length = ab.length()
+        if length < tol:
+            continue
+        low = bisect.bisect_left(xs, min(a.x(), b.x())-tol)
+        high = bisect.bisect_right(xs, max(a.x(), b.x())+tol)
+        middle = None
+        for vertex in vertices[low:high]:
+            if vertex is edge.v0 or vertex is edge.v1:
+                continue
+            t = QVector3D.dotProduct(vertex.position-a, ab)/(length*length)
+            if t <= tol/length or t >= 1.0-tol/length:
+                continue
+            if (vertex.position-(a+ab*t)).length() < tol:
+                middle = vertex
+                break
         if middle is None:
             continue
         if splits >= limit:
@@ -890,15 +960,41 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
             return _lerp_side_point(low_b[idx], low_t[idx], base_z[idx], top_z[idx], z)
         return _lerp_side_point(high_b[idx], high_t[idx], base_z[idx], top_z[idx], z)
 
-    # End caps.
-    face([QVector3D(high_b[0].x(), high_b[0].y(), base_z[0]),
-          QVector3D(low_b[0].x(), low_b[0].y(), base_z[0]),
-          QVector3D(low_t[0].x(), low_t[0].y(), top_z[0]),
-          QVector3D(high_t[0].x(), high_t[0].y(), top_z[0])], "start")
-    face([QVector3D(low_b[-1].x(), low_b[-1].y(), base_z[-1]),
-          QVector3D(high_b[-1].x(), high_b[-1].y(), base_z[-1]),
-          QVector3D(high_t[-1].x(), high_t[-1].y(), top_z[-1]),
-          QVector3D(low_t[-1].x(), low_t[-1].y(), top_z[-1])], "end")
+    # End caps must also be cut where a void crosses an endpoint. Keeping
+    # the old FULL end face made receded walls falsely cover part of a doorway
+    # and created a nonmanifold seam at the clipped opening boundary.
+    def end_cap(idx, side):
+        at=0.0 if idx==0 else L
+        boundary=next((o for o in ops
+                       if o["s0"]-1e-8<=at<=o["s1"]+1e-8),None)
+        height=top_z[idx]-base_z[idx]
+        if boundary is None:
+            bands=[(base_z[idx],top_z[idx])]
+        else:
+            from .opening_profile import opening_slice
+            aperture=opening_slice(height,boundary["sill"],boundary["height"])
+            zlow=base_z[idx]+boundary["sill"]
+            zhigh=min(top_z[idx],zlow+boundary["height"])
+            bands=[]
+            if not aperture["cut"]:
+                bands=[(base_z[idx],top_z[idx])]
+            else:
+                if zlow-base_z[idx] > 1.e-9:
+                    bands.append((base_z[idx],zlow))
+                if top_z[idx]-zhigh > 1.e-9:
+                    bands.append((zhigh,top_z[idx]))
+        for bottom,top in bands:
+            low0=side_at(idx,"low",bottom)
+            high0=side_at(idx,"high",bottom)
+            low1=side_at(idx,"low",top)
+            high1=side_at(idx,"high",top)
+            if side=="start":
+                face([high0,low0,low1,high1],"start")
+            else:
+                face([low0,high0,high1,low1],"end")
+
+    end_cap(0,"start")
+    end_cap(-1,"end")
 
     for i, (sa, sb) in enumerate(zip(ss, ss[1:])):
         if sb-sa <= 1.0e-10:
@@ -966,6 +1062,12 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
         if i0 is None or i1 is None:
             continue
         for idx, rev in ((i0, False), (i1, True)):
+            # At the wall boundary this edge is OPEN to the exterior,
+            # not a jamb. Drawing a reveal here seals the cut on the
+            # end and leaves nonmanifold edges after splitting its cap.
+            if (idx == 0 and o["s0"] <= 1.e-8 or
+                    idx == len(ss)-1 and o["s1"] >= L-1.e-8):
+                continue
             span = opening_slice(top_z[idx]-base_z[idx], o["sill"], o["height"])
             if not span["cut"]:
                 continue
@@ -1030,7 +1132,7 @@ def _build_body_with_polygon_openings(values, previous, path, caps, offsets, bod
     polygons = []
     for o in ops:
         if o.get("kind") == "polygon":
-            polygons.append(o["polygon"])
+            polygons.append(o.get("cut_polygon",o["polygon"]))
         else:
             s0, s1 = o["s0"], o["s1"]
             z0, z1 = o["sill"], o["sill"] + o["height"]
@@ -1079,10 +1181,36 @@ def _build_body_with_polygon_openings(values, previous, path, caps, offsets, bod
                 return i
         raise WallError("Não foi possível associar o contorno à trajetória da parede.")
 
-    add([side(0,"high",0), side(0,"low",0),
-         side(0,"low",wall_height(0)), side(0,"high",wall_height(0))], "start")
-    add([side(-1,"low",0), side(-1,"high",0),
-         side(-1,"high",wall_height(L)), side(-1,"low",wall_height(L))], "end")
+    # When a polygon reaches a trimmed wall endpoint its cut must OPEN to
+    # the outside. A solid full-height cap would cover the doorway and leave
+    # nonmanifold faces along the apparent cut at the wall boundary.
+    def endpoint_cap(index, label):
+        station=0.0 if index==0 else L
+        near=max(1e-8,min(L/1e6,1e-6))
+        scan=near if index==0 else L-near
+        height=wall_height(station)
+        elevations=[0.0,height]
+        for poly in polygons:
+            for z,_edge in scan_edges(poly,scan):
+                if 1e-8<z<height-1e-8:
+                    elevations.append(z)
+        zlevels=[]
+        for z in sorted(elevations):
+            if not zlevels or z-zlevels[-1]>1.e-8:
+                zlevels.append(z)
+        for z0,z1 in zip(zlevels,zlevels[1:]):
+            if z1-z0<=1e-8 or any(contains(poly,scan,(z0+z1)*.5)
+                                   for poly in polygons):
+                continue
+            if label=="start":
+                add([side(index,"high",z0),side(index,"low",z0),
+                     side(index,"low",z1),side(index,"high",z1)],label)
+            else:
+                add([side(index,"low",z0),side(index,"high",z0),
+                     side(index,"high",z1),side(index,"low",z1)],label)
+
+    endpoint_cap(0,"start")
+    endpoint_cap(-1,"end")
 
     for i, (sa, sb) in enumerate(zip(ss, ss[1:])):
         if sb-sa <= 1.0e-9:
@@ -1131,6 +1259,11 @@ def _build_body_with_polygon_openings(values, previous, path, caps, offsets, bod
             if clipped is None:
                 continue
             a, b = clipped
+            # A polygon's clipping segment on x=0 or x=L is not a real
+            # jamb: the opening is flush with (and open through) the end.
+            if abs(a[0]-b[0])<1e-8 and (
+                    abs(a[0])<1e-8 or abs(a[0]-L)<1e-8):
+                continue
             mid = ((a[0]+b[0])/2.0, (a[1]+b[1])/2.0)
             if mid[1] <= 1.0e-8 or mid[1] >= wall_height(mid[0])-1.0e-8:
                 continue  # a free boundary at the wall's floor or head

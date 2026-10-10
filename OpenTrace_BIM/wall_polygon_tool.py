@@ -14,6 +14,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QVector3D
 from tools.base import Tool
 
+from .bim import new_ifc_guid
 from .commands import EditWall
 from .model import (
     WallError, _path_cumulative, _point_on_path_distance,
@@ -21,7 +22,8 @@ from .model import (
     read_wall, wall_opening_intervals, wall_path_kind,
 )
 from .wall_polygon import (normalize_polygon, insert_vertex, move_vertex,
-                           move_edge, delete_vertex)
+                           move_edge, delete_vertex, translate_polygon,
+                           stretch_edge, rectangle_to_polygon)
 
 
 class WallPolygonTool(Tool):
@@ -48,23 +50,33 @@ class WallPolygonTool(Tool):
         self.edge_index = None
         self.pick_anchor = None
         self.operation = "move_vertex"
+        self.preset_index = None
+        self.convert_rect = False
         self.reference_path = []
         self.cumulative = []
         self.values = None
         self.plane_station = 0.0
 
-    def prepare(self, wall, anchor, opening_id=None, operation="move_vertex"):
+    def prepare(self, wall, anchor, opening_id=None, operation="move_vertex",
+                index=None, convert_rect=False):
         self.reset()
         self.wall = wall
-        self.anchor = QVector3D(anchor)
+        self.anchor = QVector3D(anchor) if anchor is not None else None
         self.mode = "edit" if opening_id else "create"
         self.opening_id = opening_id
         self.operation = operation
-        self.start_point = QVector3D(anchor)
+        self.preset_index = index
+        self.convert_rect = bool(convert_rect)
+        self.start_point = QVector3D(anchor) if anchor is not None else None
 
     def on_activate(self, viewport):
         try:
-            if self.wall is None or self.wall not in viewport.scene.groups:
+            if self.wall is None:
+                self.controller.message(
+                    "Clique sobre a parede para iniciar o contorno da abertura.")
+                viewport.update()
+                return
+            if self.wall not in viewport.scene.groups:
                 raise WallError("Selecione uma parede válida.")
             if wall_path_kind(self.wall) not in ("line", "arc"):
                 raise WallError("Selecione uma parede reta ou curva circular.")
@@ -76,15 +88,34 @@ class WallPolygonTool(Tool):
             if self.mode == "edit":
                 opening = next((o for o in self.values.get("openings", [])
                                 if o.get("id") == self.opening_id), None)
-                if opening is None or opening.get("kind") != "polygon":
-                    raise WallError("A abertura poligonal selecionada não está disponível.")
-                self.points = [list(p) for p in opening["polygon"]]
+                if opening is None:
+                    raise WallError("A abertura selecionada não está disponível.")
+                if opening.get("kind") == "polygon":
+                    self.points=[list(p) for p in opening["polygon"]]
+                elif opening.get("kind") == "rect" and self.convert_rect:
+                    self.points=rectangle_to_polygon(opening,self.values["length"])
+                else:
+                    raise WallError("Este vão não permite edição livre de vértices.")
                 self.plane_station = sum(p[0] for p in self.points)/len(self.points)
+                # Like slab_opening_edit, a clicked logical vertex/edge
+                # stays identified when the palette arms the operation.
+                if self.preset_index is not None:
+                    idx=int(self.preset_index)%len(self.points)
+                    if self.operation in ("move_vertex","delete_vertex"):
+                        self.vertex_index=idx
+                        if self.operation=="move_vertex":
+                            self.pick_anchor=list(self.points[idx])
+                    elif self.operation in ("move_edge","insert_vertex","stretch_edge"):
+                        self.edge_index=idx
+                        if self.operation in ("move_edge","stretch_edge"):
+                            self.pick_anchor=self._local(self.anchor)
                 messages = {
                     "move_vertex": "Selecione um vértice e depois indique sua nova posição.",
                     "insert_vertex": "Clique na aresta onde deseja inserir um vértice.",
                     "move_edge": "Clique numa aresta e depois indique seu deslocamento.",
                     "delete_vertex": "Clique no vértice a excluir (mínimo três).",
+                    "stretch_edge": "Puxe a aresta para criar uma extensão, depois clique.",
+                    "move_opening": "Clique no ponto de referência e, depois, no destino.",
                 }
                 self.controller.message(
                     "Editar abertura: " + messages.get(self.operation, messages["move_vertex"])
@@ -129,15 +160,26 @@ class WallPolygonTool(Tool):
     def _local(self, world):
         s = nearest_path_distance_world(self.wall, world)
         length = self.cumulative[-1]
-        base, _top, _offset = profile_at_fraction(self.values, s/length)
+        if len(self.reference_path)==2:
+            a,b=self.reference_path
+            axis=b-a
+            if axis.length()>1.e-9:
+                s=QVector3D.dotProduct(QVector3D(world)-a,axis)/axis.length()
+        base, _top, _offset = profile_at_fraction(
+            self.values, max(0.0,min(1.0,s/length)))
         origin = self.wall.xform.map(QVector3D(0, 0, 0))
         return [float(s), float(world.z()-origin.z()-base)]
 
     def _world(self, point):
         s, z = point
         length = self.cumulative[-1]
-        q = _point_on_path_distance(self.reference_path, self.cumulative, s)
-        base, _top, _offset = profile_at_fraction(self.values, s/length)
+        if len(self.reference_path)==2:
+            a,b=self.reference_path
+            q=a+(b-a)*(s/length)
+        else:
+            q = _point_on_path_distance(self.reference_path, self.cumulative, s)
+        base, _top, _offset = profile_at_fraction(
+            self.values,max(0.0,min(1.0,s/length)))
         return QVector3D(q.x(), q.y(),
                          self.wall.xform.map(QVector3D(0, 0, 0)).z()+base+z)
 
@@ -171,16 +213,17 @@ class WallPolygonTool(Tool):
                               8.0, float(getattr(viewport, "snap_threshold_px", 10.0)))
 
     def _candidate(self, points, *, replace=False):
-        polygon = normalize_polygon(points, self.values["length"])
+        polygon = normalize_polygon(points, self.values["length"],
+                                    allow_outside=replace)
         vals = copy.deepcopy(self.values)
         op = {"id": self.opening_id or uuid.uuid4().hex,
               "kind": "polygon", "polygon": polygon,
               "edges": [{"type": "line"} for _ in polygon],
-              "source_id": None}
+              "source_id": None, "ifc_global_id": new_ifc_guid()}
         if replace:
             for i, existing in enumerate(vals["openings"]):
                 if existing.get("id") == self.opening_id:
-                    op = dict(existing, polygon=polygon,
+                    op = dict(existing, kind="polygon", polygon=polygon,
                               edges=[{"type": "line"} for _ in polygon])
                     vals["openings"][i] = op
                     break
@@ -203,14 +246,36 @@ class WallPolygonTool(Tool):
         self.values = vals
         self.opening_id = uid
         self.controller._active_opening_id = uid
+        self.controller._active_opening_wall = self.wall
+        # Keep the edited host selected, as the slab editor does, so the
+        # remaining logical opening handles stay visible after committing.
+        viewport.scene.selection.add(self.wall)
         self.controller._state_key = None
         viewport.notify_scene_changed()
         self.controller.message("Abertura poligonal atualizada." if replace else
                                 "Abertura livre criada na parede.")
         return True
 
+    def _acquire_host(self, ctx):
+        if self.values is not None:
+            return True
+        vp=ctx.viewport
+        pick=getattr(vp,"pick_group",None)
+        if not callable(pick):
+            return False
+        wall=pick(ctx.screen.x(),ctx.screen.y())
+        from .model import wall_record
+        if wall is None or wall_record(wall) is None:
+            return False
+        if (not vp.scene.entity_selectable(wall)
+                or not vp.scene.entity_visible(wall)):
+            return False
+        self.prepare(wall,ctx.world)
+        self.on_activate(vp)
+        return self.values is not None
+
     def on_hover(self, ctx):
-        if self.values is None:
+        if self.values is None and not self._acquire_host(ctx):
             return
         self.plane_station = nearest_path_distance_world(self.wall, ctx.world)
         self.hover = self._local(ctx.world)
@@ -219,95 +284,130 @@ class WallPolygonTool(Tool):
             self.chain_first_point = self._world(self.points[0])
         ctx.viewport.update()
 
+    def _edit_preview_points(self):
+        if self.mode!="edit" or self.hover is None or not self.points:
+            return self.points
+        length=self.values["length"]
+        try:
+            if self.operation=="move_opening" and self.pick_anchor is not None:
+                delta=[self.hover[0]-self.pick_anchor[0],
+                       self.hover[1]-self.pick_anchor[1]]
+                return translate_polygon(self.points,delta,length)
+            if self.operation=="move_vertex" and self.vertex_index is not None:
+                return move_vertex(self.points,self.vertex_index,self.hover,length,
+                                   allow_outside=True)
+            if self.operation in ("move_edge","stretch_edge") and self.edge_index is not None and self.pick_anchor is not None:
+                delta=[self.hover[0]-self.pick_anchor[0],
+                       self.hover[1]-self.pick_anchor[1]]
+                op=stretch_edge if self.operation=="stretch_edge" else move_edge
+                return op(self.points,self.edge_index,delta,length,allow_outside=True)
+        except (ValueError,WallError):
+            pass
+        return self.points
+
+    def _finish_edition(self):
+        self.reset()
+        QTimer.singleShot(0,self.controller.return_to_select)
+
     def on_click(self, ctx):
-        if self.values is None:
+        if self.values is None and not self._acquire_host(ctx):
+            self.controller.message("Clique numa parede paramétrica para criar o vão.",
+                                    error=True)
             return
-        local = self._local(ctx.world)
-        self.plane_station = local[0]
-        if self.mode == "edit":
+        local=self._local(ctx.world)
+        self.plane_station=local[0]
+        if self.mode=="edit":
             try:
-                length = self.values["length"]
-                if self.operation in ("move_vertex", "delete_vertex"):
+                length=self.values["length"]
+                if self.operation=="move_opening":
+                    if self.pick_anchor is None:
+                        self.pick_anchor=list(local)
+                        self.controller.message("Indique o destino do ponto de referência do vão.")
+                    else:
+                        candidate=translate_polygon(self.points,
+                            [local[0]-self.pick_anchor[0],
+                             local[1]-self.pick_anchor[1]],
+                            length,allow_outside=True)
+                        if self._commit(ctx.viewport,candidate,replace=True):
+                            self._finish_edition()
+                elif self.operation in ("move_vertex","delete_vertex"):
                     if self.vertex_index is None:
-                        for i, p in enumerate(self.points):
-                            if self._near_vertex(ctx.viewport, ctx.screen, p):
-                                self.vertex_index = i
+                        for i,p in enumerate(self.points):
+                            if self._near_vertex(ctx.viewport,ctx.screen,p):
+                                self.vertex_index=i
                                 break
                         else:
-                            self.controller.message("Selecione um vértice da abertura.", error=True)
-                    if self.vertex_index is not None:
-                        if self.operation == "delete_vertex":
-                            candidate = delete_vertex(self.points, self.vertex_index, length)
-                            if self._commit(ctx.viewport, candidate, replace=True):
-                                self.points = candidate
-                                self.vertex_index = None
-                        elif self.pick_anchor is None:
-                            self.pick_anchor = list(self.points[self.vertex_index])
-                            self.controller.message("Indique a nova posição do vértice.")
-                        else:
-                            candidate = move_vertex(self.points, self.vertex_index, local, length)
-                            if self._commit(ctx.viewport, candidate, replace=True):
-                                self.points = candidate
-                                self.vertex_index = None
-                                self.pick_anchor = None
-                else:
-                    if self.edge_index is None:
-                        self.edge_index = self._edge_from_screen(
-                            ctx.viewport, ctx.screen)
-                        if self.edge_index is None:
-                            self.controller.message("Clique numa aresta da abertura.", error=True)
-                        elif self.operation == "move_edge":
-                            self.pick_anchor = list(local)
-                            self.controller.message("Indique a nova posição da aresta.")
-                        else:
-                            candidate = insert_vertex(
-                                self.points, self.edge_index, local, length)
-                            if self._commit(ctx.viewport, candidate, replace=True):
-                                self.points = candidate
-                            self.edge_index = None
+                            self.controller.message("Clique num vértice da abertura.",error=True)
+                            return
+                    if self.operation=="delete_vertex":
+                        candidate=delete_vertex(self.points,self.vertex_index,
+                                                length,allow_outside=True)
+                        if self._commit(ctx.viewport,candidate,replace=True):
+                            self._finish_edition()
+                    elif self.pick_anchor is None:
+                        self.pick_anchor=list(self.points[self.vertex_index])
+                        self.controller.message("Indique a nova posição do vértice.")
                     else:
-                        delta = [local[0]-self.pick_anchor[0],
-                                 local[1]-self.pick_anchor[1]]
-                        candidate = move_edge(self.points, self.edge_index,
-                                              delta, length)
-                        if self._commit(ctx.viewport, candidate, replace=True):
-                            self.points = candidate
-                            self.edge_index = None
-                            self.pick_anchor = None
-            except (ValueError, WallError) as exc:
-                self.controller.message(str(exc), error=True)
+                        candidate=move_vertex(self.points,self.vertex_index,local,
+                                              length,allow_outside=True)
+                        if self._commit(ctx.viewport,candidate,replace=True):
+                            self._finish_edition()
+                elif self.operation in ("insert_vertex","move_edge","stretch_edge"):
+                    if self.edge_index is None:
+                        self.edge_index=self._edge_from_screen(ctx.viewport,ctx.screen)
+                        if self.edge_index is None:
+                            self.controller.message("Clique numa aresta da abertura.",error=True)
+                            return
+                        if self.operation in ("move_edge","stretch_edge"):
+                            self.pick_anchor=list(local)
+                            self.controller.message("Indique o novo limite da aresta.")
+                            return
+                    if self.operation=="insert_vertex":
+                        candidate=insert_vertex(self.points,self.edge_index,local,
+                                                length,allow_outside=True)
+                    elif self.pick_anchor is None:
+                        self.pick_anchor=list(local)
+                        self.controller.message("Indique a nova posição da aresta.")
+                        return
+                    else:
+                        delta=[local[0]-self.pick_anchor[0],
+                               local[1]-self.pick_anchor[1]]
+                        op=stretch_edge if self.operation=="stretch_edge" else move_edge
+                        candidate=op(self.points,self.edge_index,delta,length,
+                                     allow_outside=True)
+                    if self._commit(ctx.viewport,candidate,replace=True):
+                        self._finish_edition()
+            except (ValueError,WallError) as exc:
+                self.controller.message(str(exc),error=True)
         else:
-            if len(self.points) >= 3 and self._near_vertex(
-                    ctx.viewport, ctx.screen, self.points[0]):
-                if self._commit(ctx.viewport, self.points):
+            if len(self.points)>=3 and self._near_vertex(
+                    ctx.viewport,ctx.screen,self.points[0]):
+                if self._commit(ctx.viewport,self.points):
                     self.reset()
                     self.controller.return_to_select()
-            elif self.points and math.dist(self.points[-1], local) <= 1.0e-4:
-                self.controller.message("Indique outro vértice.", error=True)
+            elif self.points and math.dist(self.points[-1],local)<=1.e-4:
+                self.controller.message("Indique outro vértice.",error=True)
             else:
                 self.points.append(local)
-                self.hover = local
-                self.start_point = self._world(local)
-                self.chain_first_point = self._world(self.points[0]) if len(
-                    self.points) >= 2 else None
+                self.hover=local
+                self.start_point=self._world(local)
+                self.chain_first_point=self._world(self.points[0]) if len(
+                    self.points)>=2 else None
         ctx.viewport.update()
 
     def rubber_band_lines(self):
         if self.wall is None or self.values is None:
             return []
-        points = list(self.points)
-        lines = list(zip(points, points[1:]))
-        if self.mode == "edit" and len(points) >= 3:
-            lines.append((points[-1], points[0]))
-        if self.hover is not None and self.mode == "create" and points:
-            lines.append((points[-1], self.hover))
-        if (self.mode == "edit" and self.vertex_index is not None
-                and self.pick_anchor is not None and self.hover is not None):
-            n = len(points)
-            i = self.vertex_index
-            lines.append((points[(i-1)%n], self.hover))
-            lines.append((self.hover, points[(i+1)%n]))
-        return [(self._world(a), self._world(b)) for a, b in lines]
+        points=list(self._edit_preview_points() if self.mode=="edit" else self.points)
+        lines=list(zip(points,points[1:]))
+        if self.mode=="edit" and len(points)>=3:
+            lines.append((points[-1],points[0]))
+        if self.hover is not None and self.mode=="create" and points:
+            lines.append((points[-1],self.hover))
+        try:
+            return [(self._world(a),self._world(b)) for a,b in lines]
+        except (WallError,ValueError,ZeroDivisionError):
+            return []
 
     def on_cancel(self, viewport):
         self.reset()

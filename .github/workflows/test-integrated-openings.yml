@@ -1,0 +1,118 @@
+name: OpenTrace integrated openings / door-window experimental gate
+
+on:
+  push:
+    branches:
+      - dev/opening-controller-integration-2026-10-10
+    paths:
+      - 'OpenTrace_BIM/**'
+      - 'tests/**'
+      - 'tests_host/**'
+      - 'docs/DEVELOPMENT_MASTER.md'
+      - '.github/workflows/test-integrated-openings.yml'
+  workflow_dispatch:
+
+jobs:
+  pure-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python compile and pure contract tests
+        run: |
+          python -m compileall -q OpenTrace_BIM
+          python -m unittest discover -s tests -v
+
+  host-tests:
+    needs: pure-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: ingelibre/ingetrazo
+          path: ingetrazo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Native host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libopengl0 libxkbcommon0
+          python -m pip install 'PySide6>=6.9,<7' 'numpy>=1.26,<3'
+      - name: Test real IngeTrazo scene, mesh, IFC and IGZ
+        working-directory: plugin
+        env:
+          PYTHONPATH: "${{ github.workspace }}/ingetrazo:${{ github.workspace }}/plugin"
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests_host -v
+
+  experimental-package:
+    needs: host-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage directly installable plugin ZIP (no ZIP inside ZIP)
+        run: |
+          python - <<'PY'
+          import pathlib, shutil, tempfile, zipfile
+          root = pathlib.Path("OpenTrace_BIM")
+          stage = pathlib.Path("installable")
+          assert (root / "__init__.py").is_file(), "Package entry point missing"
+          assert not stage.exists(), "Staging directory must start empty"
+          # GitHub Artifacts creates the downloadable ZIP. Upload the plugin
+          # DIRECTORY, never an already compressed inner ZIP.
+          shutil.copytree(root, stage / "OpenTrace_BIM",
+                          ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+          contents = sorted(p.relative_to(stage).as_posix()
+                            for p in stage.rglob("*") if p.is_file())
+          assert contents and "OpenTrace_BIM/__init__.py" in contents
+          assert all(p.startswith("OpenTrace_BIM/") for p in contents)
+          assert not any(p.lower().endswith(".zip") for p in contents)
+          # Verify expected one-folder archive structure before uploading.
+          with tempfile.TemporaryDirectory() as td:
+              test_zip = pathlib.Path(td) / "install-check.zip"
+              with zipfile.ZipFile(test_zip, "w", zipfile.ZIP_DEFLATED) as z:
+                  for p in sorted(stage.rglob("*")):
+                      if p.is_file():
+                          z.write(p, p.relative_to(stage))
+              with zipfile.ZipFile(test_zip) as z:
+                  assert z.namelist() == contents
+                  z.extractall(pathlib.Path(td) / "extracted")
+              assert (pathlib.Path(td) / "extracted/OpenTrace_BIM/__init__.py").is_file()
+          print("INSTALLABLE: 1 ZIP / OpenTrace_BIM/ /", len(contents), "files")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          # The GitHub artifact download IS the ZIP, not a wrapper.
+          name: OpenTrace_BIM-EXPERIMENTAL-INSTALL
+          path: installable/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Verify the ACTUAL downloadable artifact structure
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenTrace_BIM-EXPERIMENTAL-INSTALL
+          path: downloaded
+      - name: Reject double ZIP and wrong top-level directories
+        run: |
+          python - <<'PY'
+          import pathlib
+          root=pathlib.Path("downloaded")
+          entries=list(root.iterdir())
+          assert len(entries)==1 and entries[0].name=="OpenTrace_BIM" and entries[0].is_dir(), (
+              "ZIP must contain exactly one OpenTrace_BIM/ folder", [p.name for p in entries])
+          assert (entries[0]/"__init__.py").is_file()
+          assert not list(root.rglob("*.zip")), "Nested ZIP not allowed"
+          print("Verified downloaded GitHub artifact: OpenTrace_BIM/__init__.py and plugin files, no nested ZIP")
+          PY

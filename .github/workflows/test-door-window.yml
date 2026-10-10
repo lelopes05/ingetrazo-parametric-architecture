@@ -1,0 +1,27 @@
+name: OpenTrace stage 02 — pure parametric elements
+
+on:
+  push:
+    branches:
+      - dev/parametric-door-window-2026-10-09
+  pull_request:
+    paths:
+      - 'OpenTrace_BIM/door_window_core.py'
+      - 'tests/test_door_window_core.py'
+      - '.github/workflows/test-door-window.yml'
+  workflow_dispatch:
+
+jobs:
+  pure-parametrics:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check pure contracts, anchors and geometry
+        run: python -m unittest discover -s tests -v
+      - name: Compile all modules
+        run: python -m compileall -q OpenTrace_BIM

@@ -25,6 +25,8 @@ class ArchitectureSuitePanel:
         self.app=app;self.controllers={"wall":wall,"slab":slab,"column":column,"beam":beam,"membrane":membrane,"profiles":profiles,"bim":bim}
         self._sync_queued=False;self._last_active_tool_id=id(getattr(self.app.viewport,"active_tool",None))
         self._mode_buttons={}
+        self._arrange_panel = None
+        self._arrange_dock = None
         self.panel=QWidget();self.panel.setMinimumSize(0,0)
         root=QVBoxLayout(self.panel);root.setContentsMargins(4,4,4,4);root.setSpacing(4)
         self.nav=QFrame();navlay=QHBoxLayout(self.nav);navlay.setContentsMargins(0,0,0,0);navlay.setSpacing(2)
@@ -33,6 +35,24 @@ class ArchitectureSuitePanel:
             b=QToolButton();b.setCheckable(True);b.setAutoRaise(True);b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon);b.setIcon(icon(ico));b.setIconSize(QSize(26,26));b.setText(label);b.setToolTip(label)
             b.clicked.connect(lambda _=False,k=key:self.user_show_page(k))
             navlay.addWidget(b);self.group.addButton(b);self.buttons[key]=b
+        # Project information lives on its own page, outside the BIM
+        # element inspector. Opening this page never starts a drawing tool.
+        self.arrange_button = QToolButton(self.nav)
+        self.arrange_button.setText("↔")
+        self.arrange_button.setToolTip("Alinhar e distribuir objetos em X, Y e Z")
+        self.arrange_button.setAccessibleName("Alinhar e distribuir objetos")
+        self.arrange_button.setAutoRaise(True)
+        self.arrange_button.setFixedSize(QSize(26, 26))
+        self.arrange_button.clicked.connect(self.open_arrange)
+        navlay.addWidget(self.arrange_button, 0, Qt.AlignTop)
+        self.project_info_button = QToolButton(self.nav)
+        self.project_info_button.setText("ⓘ")
+        self.project_info_button.setToolTip("Informações do Projeto")
+        self.project_info_button.setAccessibleName("Informações do Projeto")
+        self.project_info_button.setAutoRaise(True)
+        self.project_info_button.setFixedSize(QSize(26, 26))
+        self.project_info_button.clicked.connect(lambda: self.show_page("project"))
+        navlay.addWidget(self.project_info_button, 0, Qt.AlignTop)
         root.addWidget(self.nav)
         self.stack=QStackedWidget();self.stack.setMinimumSize(0,0);root.addWidget(self.stack,1);self.pages={}
         self.home=self._make_home();self._add_page("home",self.home)
@@ -57,7 +77,14 @@ class ArchitectureSuitePanel:
             wrapped=self._wrap_controller_page(key,ctrl,page)
             self._add_page(key,wrapped)
             ctrl.dock=self.master_dock
+        bim_ctrl=self.controllers.get("bim")
+        if bim_ctrl is not None and getattr(bim_ctrl, "project_panel", None) is not None:
+            self._add_page("project", bim_ctrl.project_panel)
+        else:
+            self.project_info_button.setEnabled(False)
         self.show_page("home",show_dock=False);self._wire();self.refresh_home();self.sync_mode_buttons()
+        from .workspace_menu import install_workspace_menu
+        self.workspace_menus = install_workspace_menu(self)
         QTimer.singleShot(1800,self._auto_check_updates_on_startup)
 
     def _add_page(self,key,widget):
@@ -178,6 +205,27 @@ class ArchitectureSuitePanel:
         if key in ("wall","slab","column","beam"):
             self._activate_default(key)
 
+    def open_arrange(self):
+        # Lazy native dock creation. The modelling tool stays unchanged.
+        try:
+            if self._arrange_panel is None:
+                from .arrange_ui import ArrangePanel
+                panel = ArrangePanel(self.app)
+                dock = self.app.add_panel(
+                    "Alinhar e distribuir", panel, name="arrange")
+                self._arrange_panel = panel
+                self._arrange_dock = dock
+            self._arrange_panel.refresh()
+            try:
+                self.app.show_panel(self._arrange_dock)
+            except Exception:
+                self._arrange_dock.show()
+        except Exception as exc:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self.panel, "OpenTrace BIM",
+                f"Não foi possível abrir a paleta de alinhamento: {type(exc).__name__}: {exc}")
+
     def _auto_update_toggled(self, enabled):
         if enabled and self.update_manager is not None:
             # The checkbox itself is the user's consent to perform automatic
@@ -216,7 +264,15 @@ class ArchitectureSuitePanel:
     def show_page(self,key,show_dock=True):
         if key not in self.pages:key="home"
         self.stack.setCurrentWidget(self.pages[key]);b=self.buttons.get(key)
-        if b is not None:b.setChecked(True)
+        if b is not None:
+            b.setChecked(True)
+        elif key == "project":
+            # A context page without a dedicated category tab must not
+            # leave the BIM or a modelling tab misleadingly selected.
+            self.group.setExclusive(False)
+            for button in self.buttons.values():
+                button.setChecked(False)
+            self.group.setExclusive(True)
         if show_dock:
             try:self.app.show_panel(self.master_dock)
             except Exception:self.master_dock.show()
@@ -243,7 +299,9 @@ class ArchitectureSuitePanel:
         # BIM is an inspector/export workspace. Keep it open while selection or
         # metadata changes; otherwise selecting a wall would immediately throw
         # the user back to the modelling page.
-        if self.pages.get("bim") is not None and self.stack.currentWidget() is self.pages.get("bim"):
+        if any(self.pages.get(key) is not None and
+               self.stack.currentWidget() is self.pages[key]
+               for key in ("bim", "project")):
             return
         active=getattr(self.app.viewport,"active_tool",None)
         for key in ("wall","slab","column","beam"):
