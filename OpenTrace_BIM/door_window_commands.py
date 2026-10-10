@@ -243,3 +243,33 @@ class DeleteHostedOpening(Command):
         if self.group is not None:
             scene.groups.insert(min(self.index, len(scene.groups)), self.group)
             scene.version += 1
+
+def sync_hosted_fill_placements(scene):
+    """Follow host wall transform/path edits without new history records.
+
+    The wall is the geometric authority. On undo/redo or native move, derive
+    each independent door/window placement again from its persistent reference.
+    Return the number of actual transform changes; keep leaf/marco meshes intact.
+    A missing/temporarily invalid host is left untouched, never deleted.
+    """
+    from .model import wall_record
+    walls = {getattr(wall, "uid", None): wall for wall in scene.groups
+             if wall_record(wall) is not None}
+    changed = 0
+    for group in list(scene.groups):
+        rec = _fill_record(group)
+        if rec is None:
+            continue
+        wall = walls.get(rec.get("host_id"))
+        if wall is None:
+            continue
+        try:
+            target = place_fill_on_wall(rec["params"], wall)
+        except (FillError, ValueError, KeyError):
+            continue
+        before = group.xform
+        after = target.xform
+        if before != after:
+            group.xform = QMatrix4x4(after)
+            changed += 1
+    return changed
