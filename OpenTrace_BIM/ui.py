@@ -1196,20 +1196,12 @@ class WallController(QObject):
                 walls = selected_walls(self.app.scene)
                 if (vp.active_tool is select_tool and len(walls) == 1
                         and event.modifiers() == Qt.NoModifier):
-                    opening_hit=hit_test(vp,self._opening_wires_for(walls[0]),
-                                         event.position().x(),event.position().y(),
-                                         active_id=self._active_opening_id)
-                    if opening_hit is not None:
-                        opening_id,handle_id=opening_hit
-                        self._active_opening_id=opening_id
-                        self._state_key=None
-                        self.refresh()
-                        vp.update()
-                        if handle_id:
-                            point=event.globalPosition().toPoint()
-                            QTimer.singleShot(0,lambda oid=opening_id,h=handle_id,p=point:
-                                               self._show_opening_handle_menu(oid,h,p))
-                        return True
+                    # Leave opening hits to the host's native extension
+                    # selection pipeline. Intercepting MouseButtonPress here
+                    # stole the click before SelectTool could commit its pick.
+                    if self._pick_virtual_opening(vp,event.position().x(),
+                                                  event.position().y()) is not None:
+                        return False
                     hit = self._reference_context(
                         event.position().x(), event.position().y(), walls[0])
                     if hit is not None:
