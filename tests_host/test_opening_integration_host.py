@@ -305,6 +305,47 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         for key in ("position","sill","height"):
             self.assertEqual(updated[1][key],original["openings"][1][key])
 
+    def test_selected_grip_press_move_release_commits_directly(self):
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from OpenTrace_BIM.ui import WallController
+        scene,wall=scene_wall([{"id":"mouse-grip","position":2.5,
+            "width":1.0,"sill":.6,"height":1.2}])
+        scene.selection.add(wall)
+        marker=object()
+        calls=[]
+        tool=SimpleNamespace(on_hover=lambda ctx:calls.append("hover"),
+                             on_click=lambda ctx:calls.append("commit"),
+                             on_cancel=lambda vp:calls.append("cancel"))
+        vp=SimpleNamespace(scene=scene,active_tool=marker,
+                           extension_pick=None,
+                           _build_ctx=lambda ev:SimpleNamespace(
+                               world=QVector3D(3.5,0,.6),viewport=vp))
+        app=SimpleNamespace(viewport=vp,scene=scene,
+                             window=SimpleNamespace(_tools={"select":marker}))
+        def begin(oid,handle,action):
+            calls.append(("start",oid,handle,action))
+            vp.active_tool=tool
+        controller=SimpleNamespace(app=app,opening_drag_tool=tool,
+            path_palette=SimpleNamespace(isVisible=lambda:False),
+            hide_path_palette=lambda:None,
+            _active_opening_wall=wall,_active_opening_id="mouse-grip",
+            _pointer_opening_grip=None,_pointer_opening_drag=False,
+            _pick_virtual_opening=lambda *_:(wall.uid,"mouse-grip","bottom-right"),
+            _start_opening_handle_drag=begin)
+        def evt(kind,point,button=Qt.LeftButton,buttons=Qt.NoButton):
+            return SimpleNamespace(type=lambda:kind,button=lambda:button,
+                buttons=lambda:buttons,position=lambda:QPointF(*point),
+                modifiers=lambda:Qt.NoModifier)
+        p=evt(QEvent.MouseButtonPress,(300,150))
+        m=evt(QEvent.MouseMove,(325,150),buttons=Qt.LeftButton)
+        r=evt(QEvent.MouseButtonRelease,(325,150))
+        self.assertTrue(WallController.eventFilter(controller,vp,p))
+        self.assertTrue(WallController.eventFilter(controller,vp,m))
+        self.assertTrue(WallController.eventFilter(controller,vp,r))
+        self.assertEqual(calls,[("start","mouse-grip","bottom-right","width"),
+                                "hover","hover","commit"])
+        self.assertIsNone(controller._pointer_opening_grip)
+
     def test_grip_pull_interactive_preview_and_single_undo_step(self):
         from OpenTrace_BIM.opening_handle_drag import OpeningHandleDragTool
         scene,wall=scene_wall([{"id":"grip-pull","position":2.5,"width":1.0,
