@@ -1093,36 +1093,89 @@ class WallController(QObject):
         menu.popup(point)
 
     def opening_changed(self,*_):
-        if self._loading or self.target is None or not self._active_opening_id:return
+        """Apply only the parameter whose Qt widget actually changed.
+
+        Never overwrite B's other dimensions with A's stale editor values.
+        The binding token is reset on any new opening selection and is set
+        only after ALL widgets have been populated with their own signals
+        blocked in _load_opening_fields().
+        """
+        if self._loading or self.target is None or not self._active_opening_id:
+            return
+        if self._fields_opening_id != self._active_opening_id:
+            self._loaded_key=None
+            self.schedule_refresh()
+            return
+        sender=self.sender()
+        field_name=next((name for name,field in self.opening_fields.items()
+                         if field is sender),None)
+        changing_ifc = sender is self.opening_fill
+        if field_name is None and not changing_ifc:
+            return
         try:
-            vals=read_wall(self.target);ops=copy.deepcopy(vals.get("openings",[]));item=next((x for x in ops if x.get("id")==self._active_opening_id),None)
-            if item is None:return
-            if item.get("kind") == "polygon":
-                return  # Free cuts are edited by polygon vertices, not rectangular controls.
-            for key,f in self.opening_fields.items():f.interpretText();item[key]=float(f.value())
-            linked=self._find_linked_fill(item)
-            if linked is not None:
-                old=normalize_fill(_fill_record(linked)["params"])
-                new_position=old["position"]+item["position"]-float(
-                    next(o for o in read_wall(self.target)["openings"]
-                         if o["id"]==item["id"])["position"])
-                changes={"width":item["width"],"height":item["height"],
-                         "sill":item["sill"],"position":new_position}
-                self.app.viewport.history.execute(
-                    EditHostedFill(self.app.scene,self.target,linked,changes))
-                if self.app.viewport.history.last_error:
-                    raise WallError(self.app.viewport.history.last_error)
-                self.app.viewport.notify_scene_changed();self._state_key=None
-                self.schedule_refresh()
+            vals=read_wall(self.target)
+            ops=copy.deepcopy(vals.get("openings",[]))
+            item=next((op for op in ops if op.get("id")==self._active_opening_id),None)
+            if item is None or item.get("kind")=="polygon":
                 return
-            cls=self.opening_fill.currentData()
-            if cls:
-                oldfill=item.get("fill") if isinstance(item.get("fill"),dict) else {};fill=copy.deepcopy(oldfill);fill["class"]=str(cls);fill.setdefault("name","Porta" if cls=="IfcDoor" else "Janela");fill.setdefault("predefined_type","DOOR" if cls=="IfcDoor" else "WINDOW");item["fill"]=fill
-            else:item.pop("fill",None);item.pop("fill_class",None);item.pop("ifc_fill_class",None)
-            vals["openings"]=ops;self.app.viewport.history.execute(EditWall(self.app.scene,self.target,vals))
-            if self.app.viewport.history.last_error:raise WallError(self.app.viewport.history.last_error)
-            self.app.viewport.notify_scene_changed();self._state_key=None;self.schedule_refresh()
-        except WallError as exc:self.message(str(exc),error=True)
+            if field_name is not None:
+                field=self.opening_fields[field_name]
+                field.interpretText()
+                candidate=float(field.value())
+                if abs(candidate-float(item[field_name])) < 1.e-9:
+                    return
+                previous_position=float(item["position"])
+                item[field_name]=candidate
+                linked=self._find_linked_fill(item)
+                if linked is not None:
+                    old=normalize_fill(_fill_record(linked)["params"])
+                    new=(old["position"]+(candidate-previous_position)
+                         if field_name=="position" else candidate)
+                    self.app.viewport.history.execute(EditHostedFill(
+                        self.app.scene,self.target,linked,{field_name:new}))
+                    if self.app.viewport.history.last_error:
+                        raise WallError(self.app.viewport.history.last_error)
+                    self.app.viewport.notify_scene_changed()
+                    self._state_key=None
+                    self._loaded_key=None
+                    self.schedule_refresh()
+                    return
+            else:
+                # IFC-only semantic change for a free void. Hosted real fills
+                # have their own classes; this combo is disabled for those.
+                if self._find_linked_fill(item) is not None:
+                    return
+                cls=self.opening_fill.currentData()
+                oldcls=((item.get("fill") or {}).get("class")
+                        if isinstance(item.get("fill"),dict) else None)
+                oldcls=oldcls or item.get("fill_class") or item.get("ifc_fill_class")
+                if cls == oldcls:
+                    return
+                if cls:
+                    oldfill=item.get("fill") if isinstance(item.get("fill"),dict) else {}
+                    fill=copy.deepcopy(oldfill)
+                    fill["class"]=str(cls)
+                    fill.setdefault("name","Porta" if cls=="IfcDoor" else "Janela")
+                    fill.setdefault("predefined_type","DOOR" if cls=="IfcDoor" else "WINDOW")
+                    item["fill"]=fill
+                else:
+                    item.pop("fill",None)
+                    item.pop("fill_class",None)
+                    item.pop("ifc_fill_class",None)
+            vals["openings"]=ops
+            self.app.viewport.history.execute(EditWall(self.app.scene,self.target,vals))
+            if self.app.viewport.history.last_error:
+                raise WallError(self.app.viewport.history.last_error)
+            self.app.viewport.notify_scene_changed()
+            self._state_key=None
+            self._loaded_key=None
+            self.schedule_refresh()
+        except (WallError,ValueError,KeyError) as exc:
+            # Restore UI from the actual committed model on failed edit.
+            self._loaded_key=None
+            self._state_key=None
+            self.message(str(exc),error=True)
+            self.schedule_refresh()
 
     def delete_wall_opening(self):
         if self.target is None or not self._active_opening_id:return
