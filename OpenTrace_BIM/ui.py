@@ -40,8 +40,8 @@ from .path_edit import (ArcWallTool, ChangeWallHeightTool, ConstrainedMoveWallTo
 from .wall_opening_tool import WallOpeningTool
 from .wall_polygon_tool import WallPolygonTool
 from .opening_controller import all_opening_wires, hit_test
-from .door_window_commands import EditHostedFill, DeleteHostedOpening, sync_hosted_fill_placements, _fill_record
-from .door_window_core import edit_from_hotspot, normalize_fill
+from .door_window_commands import EditHostedFill, DeleteHostedOpening, reverse_hosted_door, sync_hosted_fill_placements, _fill_record
+from .door_window_core import edit_from_hotspot, normalize_fill, reanchor_fill
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
 from .i18n import t, ui_locale
 from .icons import icon as pa_icon, set_symbol_icon
@@ -287,7 +287,17 @@ class WallController(QObject):
         self.opening_fields["position"].setToolTip(t("Distância da abertura medida ao longo da linha de referência da parede."))
         self.opening_fill=QComboBox(self.opening_widget);self.opening_fill.addItem("Somente abertura",None);self.opening_fill.addItem("Porta IFC","IfcDoor");self.opening_fill.addItem("Janela IFC","IfcWindow")
         self.opening_fill.setToolTip("Opcional: preenche a abertura semanticamente com IfcDoor ou IfcWindow e exporta IfcRelFillsElement.")
-        self.opening_fill.currentIndexChanged.connect(self.opening_changed);oform.addRow("Preenchimento IFC",self.opening_fill)
+        self.opening_fill.currentIndexChanged.connect(self.opening_changed);oform.addRow("Referência IFC (vão livre)",self.opening_fill)
+        self.fill_anchor_combo=QComboBox(self.opening_widget)
+        for text,anchor in (("Esquerda","left"),("Centro","center"),("Direita","right")):
+            self.fill_anchor_combo.addItem(text,anchor)
+        self.fill_anchor_combo.currentIndexChanged.connect(self._fill_anchor_changed)
+        oform.addRow("Âncora da esquadria",self.fill_anchor_combo)
+        self.reverse_swing_btn=QToolButton(self.opening_widget)
+        self.reverse_swing_btn.setText("↶ Inverter giro")
+        self.reverse_swing_btn.setToolTip("Inverter o sentido de abertura desta porta sem alterar a parede.")
+        self.reverse_swing_btn.clicked.connect(self._reverse_hosted_swing)
+        oform.addRow("Porta",self.reverse_swing_btn)
         self.polygon_label=QLabel("Abertura livre: edição por vértices",self.opening_widget)
         oform.addRow(self.polygon_label)
         self.polygon_tools=QWidget(self.opening_widget)
@@ -819,7 +829,19 @@ class WallController(QObject):
                 label.setVisible(not polygon)
         self.polygon_label.setVisible(polygon)
         self.polygon_tools.setVisible(polygon)
-        self.opening_fill.setEnabled(not polygon and self._find_linked_fill(item) is None)
+        linked=self._find_linked_fill(item)
+        self.opening_fill.setEnabled(not polygon and linked is None)
+        linked_spec=normalize_fill(_fill_record(linked)["params"]) if linked else None
+        self.fill_anchor_combo.setVisible(linked_spec is not None)
+        anchor_label=self.opening_widget.layout().labelForField(self.fill_anchor_combo)
+        if anchor_label is not None:anchor_label.setVisible(linked_spec is not None)
+        self.reverse_swing_btn.setVisible(bool(linked_spec and linked_spec["kind"]=="door"))
+        reverse_label=self.opening_widget.layout().labelForField(self.reverse_swing_btn)
+        if reverse_label is not None:reverse_label.setVisible(bool(linked_spec and linked_spec["kind"]=="door"))
+        if linked_spec:
+            previous=self.fill_anchor_combo.blockSignals(True)
+            try:self.fill_anchor_combo.setCurrentIndex(self.fill_anchor_combo.findData(linked_spec["anchor"]))
+            finally:self.fill_anchor_combo.blockSignals(previous)
         try:
             for key,f in self.opening_fields.items():blocked.append((f,f.blockSignals(True)));f.setValue(float(item.get(key,0.0)))
             oldb=self.opening_fill.blockSignals(True);fill=item.get("fill") if isinstance(item.get("fill"),dict) else {};cls=fill.get("class") or item.get("fill_class") or item.get("ifc_fill_class");idx=self.opening_fill.findData(cls);self.opening_fill.setCurrentIndex(idx if idx>=0 else 0);self.opening_fill.blockSignals(oldb)
@@ -836,6 +858,43 @@ class WallController(QObject):
                     and rec.get("source_id")==opening.get("source_id")):
                 return group
         return None
+
+    def _fill_anchor_changed(self,*_):
+        if self._loading or self.target is None or not self._active_opening_id:
+            return
+        try:
+            op=next(o for o in read_wall(self.target)["openings"]
+                    if o["id"]==self._active_opening_id)
+            group=self._find_linked_fill(op)
+            if group is None:return
+            old=normalize_fill(_fill_record(group)["params"])
+            updated=reanchor_fill(old,self.fill_anchor_combo.currentData())
+            if old==updated:return
+            self.app.viewport.history.execute(EditHostedFill(
+                self.app.scene,self.target,group,
+                {"anchor":updated["anchor"],"position":updated["position"]}))
+            if self.app.viewport.history.last_error:
+                raise WallError(self.app.viewport.history.last_error)
+            self.app.viewport.notify_scene_changed()
+            self._state_key=None;self.schedule_refresh()
+        except (WallError,ValueError,StopIteration) as exc:
+            self.message(str(exc),error=True)
+
+    def _reverse_hosted_swing(self,*_):
+        if self.target is None:return
+        try:
+            op=next(o for o in read_wall(self.target)["openings"]
+                    if o["id"]==self._active_opening_id)
+            group=self._find_linked_fill(op)
+            if group is None:return
+            self.app.viewport.history.execute(reverse_hosted_door(
+                self.app.scene,self.target,group))
+            if self.app.viewport.history.last_error:
+                raise WallError(self.app.viewport.history.last_error)
+            self.app.viewport.notify_scene_changed()
+            self._state_key=None;self.schedule_refresh()
+        except (WallError,ValueError,StopIteration) as exc:
+            self.message(str(exc),error=True)
 
     def _select_opening_from_list(self,*_):
         if self._loading or self.target is None:
