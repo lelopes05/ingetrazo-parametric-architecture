@@ -73,7 +73,7 @@ def opening_wire(wall, values, opening, *, context=None):
     else:
         item=intervals[0]
         s0,s1=float(item["s0"]),float(item["s1"])
-    sill, height = float(item["sill"]), float(item["height"])
+    sill,height=float(opening["sill"]),float(opening["height"])
     stations = (s0, s1)
     near_bottom = [_vertex(s, sill, low, cumulative, values, origin_z) for s in stations]
     far_bottom = [_vertex(s, sill, high, cumulative, values, origin_z) for s in stations]
