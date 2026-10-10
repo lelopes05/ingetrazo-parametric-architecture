@@ -923,7 +923,8 @@ class WallController(QObject):
         if viewport.scene.edit_group is not None:
             return None
         for wall in list(getattr(viewport.scene, "groups", ())):
-            if wall_record(wall) is None:
+            rec=wall_record(wall)
+            if not rec or not rec.get("openings"):
                 continue
             if not viewport.scene.entity_visible(wall) or not viewport.scene.entity_selectable(wall):
                 continue
@@ -973,14 +974,21 @@ class WallController(QObject):
         self.delete_wall_opening()
 
     def _opening_wires_for(self,wall):
-        key=(id(self.app.scene),self.app.scene.version,id(wall))
+        # A native pick is asked for every Select click, even when no wall
+        # is selected. Cache ALL hosts for the document version, not just the
+        # last wall: otherwise N walls recut N preview outlines each click.
+        key=(id(self.app.scene),self.app.scene.version)
         if self._opening_wire_key!=key:
-            try:
-                self._opening_wire_data=all_opening_wires(wall,read_wall(wall))
-            except (WallError,ValueError,TypeError):
-                self._opening_wire_data=[]
+            self._opening_wire_cache={}
             self._opening_wire_key=key
-        return self._opening_wire_data
+        cache=self._opening_wire_cache
+        ident=id(wall)
+        if ident not in cache:
+            try:
+                cache[ident]=all_opening_wires(wall,read_wall(wall))
+            except (WallError,ValueError,TypeError):
+                cache[ident]=[]
+        return cache[ident]
 
     def _change_opening_handle(self,oid,handle_id,action):
         if self.target is None:
