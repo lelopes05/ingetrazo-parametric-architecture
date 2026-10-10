@@ -364,3 +364,11 @@ O mantenedor **autorizou o trabalho simultâneo**. Esta decisão substitui a ins
 **Gate ainda não confirmado para o NOVO commit:** compilar, testes puros, integração com IngeTrazo e inicialização Qt offscreen, e ZIP automático em formato **uma pasta OpenTrace_BIM/ na raiz, sem ZIP dentro de ZIP**. **Não anunciar novo artefato como pronto até CI verde e não equiparar isso à validação manual Windows.**
 
 **Próximo bloco no PR #8:** se os gates passarem, avançar B3 (estrutura de menus/barra) e manter A1 pendente de aceitação do usuário. Alterar o controlador da abertura somente se novo teste ou reprodução mostrar falha real; ambas as frentes seguem em paralelo.
+
+### Continuação do bloco B3 — menus de criação sem refazer ferramentas (2026-10-10)
+
+- Após a integração B1/B2, o gate [38063649346](https://github.com/lelopes05/opentrace-bim/actions/runs/38063649346) aprovou **58 testes puros + 60 testes IngeTrazo/PySide6 offscreen = 118**, `compileall` e o ZIP experimental verificado (artefato `OpenTrace_BIM-EXPERIMENTAL-INSTALL` ID `11673504560`, `expired:false`). Esses resultados dizem respeito ao commit `fb4c8a1f788f0d18de7112059c87615385dc86e8`, e **não** aos menus implementados depois.
+- B3 subdividido: **B3a Menus** implementa `workspace_menu.py` para categorizar **Criar > Paredes / Elementos estruturais / Vãos e esquadrias** e **Organizar e inspecionar > Informações do Projeto / BIM / IFC / Alinhar e distribuir X/Y/Z**. Reutiliza as QActions existentes de retângulo/polígono, e a mesma API para portas e janelas, sem registrar novas ferramentas concorrentes. Não altera o desenho/seleção de aberturas nem a barra atual.
+- A paleta lateral continua sendo o local de **edição**; o menu novo apenas organiza **criação e acesso a painéis**. Teste Qt no MainWindow verifica que a hierarquia e as próprias ações de Abertura permanecem identicamente referenciadas.
+- **B3b Barra de criação unificada, grupos de ícones/atalhos e navegação visual detalhada continua pendente**; planejar a migração sem duplicar as barras do IngeTrazo. B4 (Manual/Sobre) e B5 (aceitação visual) continuam pendentes.
+- **Gate necessário após este novo commit:** CI 3 jobs + verificação do único ZIP / `OpenTrace_BIM/`. Não relatar como validado no Windows até o mantenedor testar.

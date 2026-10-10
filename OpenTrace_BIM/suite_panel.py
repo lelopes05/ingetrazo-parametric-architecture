@@ -83,6 +83,8 @@ class ArchitectureSuitePanel:
         else:
             self.project_info_button.setEnabled(False)
         self.show_page("home",show_dock=False);self._wire();self.refresh_home();self.sync_mode_buttons()
+        from .workspace_menu import install_workspace_menu
+        self.workspace_menus = install_workspace_menu(self)
         QTimer.singleShot(1800,self._auto_check_updates_on_startup)
 
     def _add_page(self,key,widget):

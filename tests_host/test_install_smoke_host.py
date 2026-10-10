@@ -72,6 +72,20 @@ class InstallationSmokeTests(unittest.TestCase):
             self.assertIsNotNone(suite._arrange_panel)
             self.assertEqual(suite._arrange_panel.axis.count(),3)
             self.assertIs(window.viewport.active_tool,old_tool)
+            # The organized menus REUSE the existing opening creation actions.
+            creation=suite.workspace_menus["create"]
+            organizer=suite.workspace_menus["organize"]
+            self.assertEqual(creation.title(),"Criar")
+            self.assertEqual(organizer.title(),"Organizar e inspecionar")
+            voids=creation.findChild(
+                __import__("PySide6.QtWidgets",fromlist=["QMenu"]).QMenu,
+                "opentrace_workspace_openings")
+            self.assertIsNotNone(voids)
+            for action in ctl.opening_toolbar_menu.actions():
+                self.assertIn(action,voids.actions())
+            self.assertEqual(
+                [a.text() for a in creation.actions() if a.menu()],
+                ["Paredes","Elementos estruturais","Vãos e esquadrias"])
             suite.show_page("wall")
             self.assertIs(suite.stack.currentWidget(),suite.pages["wall"])
             self.assertIs(window.viewport.active_tool,old_tool)
