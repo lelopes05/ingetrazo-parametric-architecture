@@ -829,6 +829,13 @@ def _stitch_opening_mesh(mesh):
     Shared vertices at the middle of another face's long edge must split
     that edge, otherwise neighbouring faces are not topologically connected.
     """
+    # IngeTrazo's interior_vertex_on linearly scans EVERY vertex per edge.
+    # Curved multi-layer cuts contain thousands of edges, producing O(E*V)
+    # rebuilds. Index once by x; a split only reuses existing vertices, so
+    # the index stays valid. Keep the host's exact 0.0001 m tolerance/criterion.
+    vertices = sorted(mesh.vertices, key=lambda v: v.position.x())
+    xs = [v.position.x() for v in vertices]
+    tol = 1.0e-4
     pending = list(mesh.edges)
     limit = max(256, 8 * len(pending))
     splits = 0
@@ -836,7 +843,23 @@ def _stitch_opening_mesh(mesh):
         edge = pending.pop()
         if edge not in mesh.edges:
             continue
-        middle = mesh.interior_vertex_on(edge)
+        a, b = edge.v0.position, edge.v1.position
+        ab = b-a
+        length = ab.length()
+        if length < tol:
+            continue
+        low = bisect.bisect_left(xs, min(a.x(), b.x())-tol)
+        high = bisect.bisect_right(xs, max(a.x(), b.x())+tol)
+        middle = None
+        for vertex in vertices[low:high]:
+            if vertex is edge.v0 or vertex is edge.v1:
+                continue
+            t = QVector3D.dotProduct(vertex.position-a, ab)/(length*length)
+            if t <= tol/length or t >= 1.0-tol/length:
+                continue
+            if (vertex.position-(a+ab*t)).length() < tol:
+                middle = vertex
+                break
         if middle is None:
             continue
         if splits >= limit:
