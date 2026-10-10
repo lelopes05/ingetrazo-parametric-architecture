@@ -838,6 +838,70 @@ class WallController(QObject):
             self._opening_wire_key=key
         return self._opening_wire_data
 
+    def _change_opening_handle(self,oid,handle_id,action):
+        if self.target is None:
+            return
+        try:
+            values=read_wall(self.target)
+            opening=next(o for o in values["openings"] if o["id"]==oid)
+            if opening.get("kind")=="polygon":
+                self.edit_wall_polygon("move_vertex")
+                return
+            linked=self._find_linked_fill(opening)
+            old_spec=normalize_fill(_fill_record(linked)["params"]) if linked else None
+            nominal=float(opening.get(action,0))
+            side=handle_id.split("-")[-1]
+            if action=="position":
+                if old_spec:
+                    from .door_window_core import station_span
+                    s0,s1=station_span(old_spec)
+                else:
+                    s0=float(opening["position"])-float(opening["width"])/2
+                    s1=float(opening["position"])+float(opening["width"])/2
+                nominal={"left":s0,"center":(s0+s1)/2,"right":s1}[side]
+            label={"width":"Largura livre (m)","height":"Altura da abertura (m)",
+                   "position":"Posição do ponto de controle (m)"}[action]
+            value,ok=QInputDialog.getDouble(self.app.window,label,label,nominal,
+                                           0.0 if action=="position" else MIN_DIM,
+                                           MAX_DIM,4)
+            if not ok or abs(value-nominal)<1.e-8:
+                return
+            if linked:
+                edited=edit_from_hotspot(old_spec,handle_id,action,value)
+                changes={k:edited[k] for k in ("position","width","height")
+                         if edited[k]!=old_spec[k]}
+                cmd=EditHostedFill(self.app.scene,self.target,linked,changes)
+            else:
+                if action=="position":
+                    opening["position"]+=value-nominal
+                else:
+                    opening[action]=value
+                cmd=EditWall(self.app.scene,self.target,values)
+            self.app.viewport.history.execute(cmd)
+            if self.app.viewport.history.last_error:
+                raise WallError(self.app.viewport.history.last_error)
+            self.app.viewport.notify_scene_changed()
+            self._state_key=None
+            self.refresh()
+        except (WallError,ValueError,StopIteration) as exc:
+            self.message(str(exc),error=True)
+
+    def _show_opening_handle_menu(self,oid,handle_id,point):
+        menu=QMenu(self.app.window)
+        if handle_id.startswith("vertex-"):
+            for title,operation in (("Mover vértice","move_vertex"),
+                                    ("Inserir vértice","insert_vertex"),
+                                    ("Mover aresta","move_edge"),
+                                    ("Excluir vértice","delete_vertex")):
+                menu.addAction(title,lambda checked=False,op=operation:self.edit_wall_polygon(op))
+        else:
+            actions=("width","position") if handle_id.startswith("bottom-") else ("width","height")
+            for action in actions:
+                title={"width":"Alterar largura","position":"Mover posição","height":"Alterar altura"}[action]
+                menu.addAction(title,lambda checked=False,a=action:
+                               self._change_opening_handle(oid,handle_id,a))
+        menu.popup(point)
+
     def opening_changed(self,*_):
         if self._loading or self.target is None or not self._active_opening_id:return
         try:
@@ -988,6 +1052,20 @@ class WallController(QObject):
                 walls = selected_walls(self.app.scene)
                 if (vp.active_tool is select_tool and len(walls) == 1
                         and event.modifiers() == Qt.NoModifier):
+                    opening_hit=hit_test(vp,self._opening_wires_for(walls[0]),
+                                         event.position().x(),event.position().y(),
+                                         active_id=self._active_opening_id)
+                    if opening_hit is not None:
+                        opening_id,handle_id=opening_hit
+                        self._active_opening_id=opening_id
+                        self._state_key=None
+                        self.refresh()
+                        vp.update()
+                        if handle_id:
+                            point=event.globalPosition().toPoint()
+                            QTimer.singleShot(0,lambda oid=opening_id,h=handle_id,p=point:
+                                               self._show_opening_handle_menu(oid,h,p))
+                        return True
                     hit = self._reference_context(
                         event.position().x(), event.position().y(), walls[0])
                     if hit is not None:
@@ -1091,6 +1169,25 @@ class WallController(QObject):
                         continue
                 painter.drawEllipse(QRectF(pt[0] - 4.0, pt[1] - 4.0, 8.0, 8.0))
                 painter.drawLine(QPointF(pt[0] - 5.5, pt[1]), QPointF(pt[0] + 5.5, pt[1]))
+
+            # Virtual controllers are overlays, never editable hidden solids.
+            if wall is self.target:
+                for oid,segments,grips in self._opening_wires_for(wall):
+                    active=(oid==self._active_opening_id)
+                    painter.setPen(QPen(QColor("#e78b24") if active else QColor("#6997b0"),
+                                        2.0 if active else 1.0,
+                                        Qt.SolidLine if active else Qt.DashLine))
+                    for a,b in segments:
+                        pa,pb=viewport._world_to_pixel(a),viewport._world_to_pixel(b)
+                        if pa is not None and pb is not None:
+                            painter.drawLine(QPointF(pa[0],pa[1]),QPointF(pb[0],pb[1]))
+                    if active:
+                        painter.setPen(QPen(QColor("#e78b24"),1.5))
+                        painter.setBrush(QColor("white"))
+                        for handle_id,p in grips:
+                            px=viewport._world_to_pixel(p)
+                            if px is not None:
+                                painter.drawRect(QRectF(px[0]-4,px[1]-4,8,8))
 
             # ArchiCAD-like hotspot at the mathematical centre of a selected arc.
             try:
