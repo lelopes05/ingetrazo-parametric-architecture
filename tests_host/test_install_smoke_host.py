@@ -56,5 +56,50 @@ class InstallationSmokeTests(unittest.TestCase):
             qt.processEvents()
 
 
+    def test_live_qt_opening_editor_updates_correct_wall_void(self):
+        """Real Qt signal: selecting B and editing width must not modify A."""
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
+        from PySide6.QtGui import QVector3D
+        from PySide6.QtWidgets import QApplication
+        from views.main_window import MainWindow
+        from views.extension_api import ExtensionApp
+        from OpenTrace_BIM import setup
+        from OpenTrace_BIM.model import DEFAULTS, make_wall_segment, read_wall
+
+        qt=QApplication.instance() or QApplication([])
+        window=MainWindow()
+        try:
+            setup(ExtensionApp(window,"OpenTrace_BIM"))
+            ctl=window._arquitetura_parametrica_controller
+            scene=window.viewport.scene
+            wall=make_wall_segment(QVector3D(0,0,0),QVector3D(5,0,0),
+                dict(DEFAULTS,length=5.0,openings=[
+                    {"id":"edit-A","position":1.0,"width":.7,
+                     "sill":.7,"height":1.2},
+                    {"id":"edit-B","position":3.5,"width":.7,
+                     "sill":.8,"height":1.1}]))
+            scene.groups.append(wall)
+            scene.selection.add(wall)
+            scene.version+=1
+            ctl._state_key=None
+            ctl.refresh()
+            self.assertIs(ctl.target,wall)
+            self.assertEqual(ctl.opening_selector.count(),2)
+            self.assertEqual(ctl._fields_opening_id,"edit-A")
+            ctl.opening_selector.setCurrentIndex(1)
+            self.assertEqual(ctl._fields_opening_id,"edit-B")
+            self.assertAlmostEqual(ctl.opening_fields["width"].value(),.7)
+            ctl.opening_fields["width"].setValue(.9)
+            model=read_wall(wall)
+            self.assertAlmostEqual(model["openings"][0]["width"],.7)
+            self.assertAlmostEqual(model["openings"][1]["width"],.9)
+            self.assertAlmostEqual(model["openings"][1]["sill"],.8)
+            self.assertAlmostEqual(model["openings"][1]["height"],1.1)
+        finally:
+            window.deleteLater()
+            qt.processEvents()
+
+
 if __name__ == "__main__":
     unittest.main()
