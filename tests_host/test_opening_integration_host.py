@@ -69,7 +69,7 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
                              _active_opening_id="extreme-clipping",
                              _opening_wires_for=lambda host:all_opening_wires(host,read_wall(host)),
                              curve_create_tool=None,move_vertex_continue_tool=None)
-        vp.active_tool=None
+        vp.active_tool=object()
         vp.extension_pick=None
         image=QImage(800,600,QImage.Format_ARGB32)
         image.fill(QColor("white"))
