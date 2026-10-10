@@ -214,7 +214,7 @@ def project_to_edge(points, edge_index, point):
     return [a[0]+u*dx, a[1]+u*dz], u
 
 
-def insert_vertex(points, edge_index, point, length):
+def insert_vertex(points, edge_index, point, length, *, allow_outside=False):
     """Split a polygon edge at the projected location."""
     n = len(points)
     if n < 3:
@@ -225,17 +225,17 @@ def insert_vertex(points, edge_index, point, length):
         raise ValueError("Insira o vértice afastado das extremidades da aresta.")
     updated = [list(p) for p in points]
     updated.insert(index+1, projected)
-    return normalize_polygon(updated, length)
+    return normalize_polygon(updated, length, allow_outside=allow_outside)
 
 
-def move_vertex(points, vertex_index, point, length):
+def move_vertex(points, vertex_index, point, length, *, allow_outside=False):
     """Move exactly one local vertex and revalidate the boundary."""
     updated = [list(p) for p in points]
     updated[vertex_index % len(updated)] = list(point)
-    return normalize_polygon(updated, length)
+    return normalize_polygon(updated, length, allow_outside=allow_outside)
 
 
-def move_edge(points, edge_index, delta, length):
+def move_edge(points, edge_index, delta, length, *, allow_outside=False):
     """Translate one edge perpendicular to itself, moving both endpoints."""
     n = len(points)
     index = edge_index % n
@@ -250,13 +250,43 @@ def move_edge(points, edge_index, delta, length):
     for i in (index, (index+1) % n):
         updated[i] = [points[i][0]+normal[0]*magnitude,
                       points[i][1]+normal[1]*magnitude]
-    return normalize_polygon(updated, length)
+    return normalize_polygon(updated, length, allow_outside=allow_outside)
 
 
-def delete_vertex(points, index, length):
+
+def translate_polygon(points, delta, length, *, allow_outside=True):
+    """Move the whole authored opening in wall station/elevation coordinates."""
+    dx,dz=map(float,delta)
+    return normalize_polygon([[float(x)+dx,float(z)+dz] for x,z in points],
+                             length,allow_outside=allow_outside)
+
+
+def stretch_edge(points, edge_index, delta, length, *, allow_outside=True):
+    """Slab-style extrude: preserve the old edge as anchoring vertices.
+
+    Adds exactly two corners and a displaced copy of the selected edge.
+    """
+    n=len(points);i=int(edge_index)%n;j=(i+1)%n
+    ax,az=map(float,points[i]);bx,bz=map(float,points[j])
+    dx,dz=bx-ax,bz-az
+    norm=math.hypot(dx,dz)
+    if norm<0.001:
+        raise ValueError("A aresta precisa ter pelo menos 1 mm.")
+    nx,nz=-dz/norm,dx/norm
+    distance=float(delta[0])*nx+float(delta[1])*nz
+    if abs(distance)<0.001:
+        raise ValueError("Arraste a aresta ao menos 1 mm.")
+    shifted_a=[ax+nx*distance,az+nz*distance]
+    shifted_b=[bx+nx*distance,bz+nz*distance]
+    rotated=[list(points[(i+k)%n]) for k in range(n)]
+    expanded=[rotated[0],shifted_a,shifted_b,rotated[1]]+rotated[2:]
+    return normalize_polygon(expanded,length,allow_outside=allow_outside)
+
+
+def delete_vertex(points, index, length, *, allow_outside=False):
     """Remove one vertex, never reducing an opening below three vertices."""
     if len(points) <= 3:
         raise ValueError("A abertura deve conservar pelo menos três vértices.")
     updated = [list(p) for p in points]
     del updated[index % len(updated)]
-    return normalize_polygon(updated, length)
+    return normalize_polygon(updated, length, allow_outside=allow_outside)
