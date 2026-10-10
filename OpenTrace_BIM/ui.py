@@ -40,7 +40,7 @@ from .path_edit import (ArcWallTool, ChangeWallHeightTool, ConstrainedMoveWallTo
 from .wall_opening_tool import WallOpeningTool
 from .wall_polygon_tool import WallPolygonTool
 from .opening_controller import all_opening_wires, hit_test
-from .door_window_commands import EditHostedFill, DeleteHostedOpening, _fill_record
+from .door_window_commands import EditHostedFill, DeleteHostedOpening, sync_hosted_fill_placements, _fill_record
 from .door_window_core import edit_from_hotspot, normalize_fill
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
 from .i18n import t, ui_locale
@@ -170,6 +170,7 @@ class WallController(QObject):
         self._active_opening_id = None
         self._opening_wire_key = None
         self._opening_wire_data = []
+        self._fill_sync_key = None
         self._make_panel()
         self._make_actions()
         self._make_path_palette()
@@ -1306,6 +1307,8 @@ class WallController(QObject):
             self.default_wall_status = None
             self._loaded_key = None
             self._junction_key = None
+            self._fill_sync_key = None
+            self._opening_wire_key = None
 
         # Tops intentionally linked to the Níveis extension are derived from
         # that level + offset.  Regenerate them before junction cleanup so a
@@ -1319,6 +1322,19 @@ class WallController(QObject):
         if level_changed:
             self._state_key = None
             vp.notify_scene_changed()
+
+        # Hosted doors/windows retain their own Group UID, while placement
+        # follows the host wall through normal edits, native move and Undo.
+        fill_key=(id(scene),wall_junction_input_key(scene))
+        if fill_key != self._fill_sync_key:
+            self._fill_sync_key=fill_key
+            try:
+                moved=sync_hosted_fill_placements(scene)
+                if moved:
+                    scene.version+=1
+                    vp.notify_scene_changed()
+            except Exception:
+                log.exception("Falha ao atualizar posicionamento das esquadrias hospedadas")
 
         # Junction cleanup is derived from the current reference endpoints and
         # wall parameters.  Recompute once per document version so creation,
