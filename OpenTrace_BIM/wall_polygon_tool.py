@@ -22,7 +22,7 @@ from .model import (
     read_wall, wall_opening_intervals, wall_path_kind,
 )
 from .wall_polygon import (normalize_polygon, insert_vertex, move_vertex,
-                           move_edge, delete_vertex)
+                           move_edge, delete_vertex, translate_polygon, stretch_edge)
 
 
 class WallPolygonTool(Tool):
@@ -49,18 +49,20 @@ class WallPolygonTool(Tool):
         self.edge_index = None
         self.pick_anchor = None
         self.operation = "move_vertex"
+        self.preset_index = None
         self.reference_path = []
         self.cumulative = []
         self.values = None
         self.plane_station = 0.0
 
-    def prepare(self, wall, anchor, opening_id=None, operation="move_vertex"):
+    def prepare(self, wall, anchor, opening_id=None, operation="move_vertex", index=None):
         self.reset()
         self.wall = wall
         self.anchor = QVector3D(anchor)
         self.mode = "edit" if opening_id else "create"
         self.opening_id = opening_id
         self.operation = operation
+        self.preset_index = index
         self.start_point = QVector3D(anchor)
 
     def on_activate(self, viewport):
@@ -81,11 +83,25 @@ class WallPolygonTool(Tool):
                     raise WallError("A abertura poligonal selecionada não está disponível.")
                 self.points = [list(p) for p in opening["polygon"]]
                 self.plane_station = sum(p[0] for p in self.points)/len(self.points)
+                # Like slab_opening_edit, a clicked logical vertex/edge
+                # stays identified when the palette arms the operation.
+                if self.preset_index is not None:
+                    idx=int(self.preset_index)%len(self.points)
+                    if self.operation in ("move_vertex","delete_vertex"):
+                        self.vertex_index=idx
+                        if self.operation=="move_vertex":
+                            self.pick_anchor=list(self.points[idx])
+                    elif self.operation in ("move_edge","insert_vertex","stretch_edge"):
+                        self.edge_index=idx
+                        if self.operation in ("move_edge","stretch_edge"):
+                            self.pick_anchor=self._local(self.anchor)
                 messages = {
                     "move_vertex": "Selecione um vértice e depois indique sua nova posição.",
                     "insert_vertex": "Clique na aresta onde deseja inserir um vértice.",
                     "move_edge": "Clique numa aresta e depois indique seu deslocamento.",
                     "delete_vertex": "Clique no vértice a excluir (mínimo três).",
+                    "stretch_edge": "Puxe a aresta para criar uma extensão, depois clique.",
+                    "move_opening": "Clique no ponto de referência e, depois, no destino.",
                 }
                 self.controller.message(
                     "Editar abertura: " + messages.get(self.operation, messages["move_vertex"])
@@ -130,15 +146,26 @@ class WallPolygonTool(Tool):
     def _local(self, world):
         s = nearest_path_distance_world(self.wall, world)
         length = self.cumulative[-1]
-        base, _top, _offset = profile_at_fraction(self.values, s/length)
+        if len(self.reference_path)==2:
+            a,b=self.reference_path
+            axis=b-a
+            if axis.length()>1.e-9:
+                s=QVector3D.dotProduct(QVector3D(world)-a,axis)/axis.length()
+        base, _top, _offset = profile_at_fraction(
+            self.values, max(0.0,min(1.0,s/length)))
         origin = self.wall.xform.map(QVector3D(0, 0, 0))
         return [float(s), float(world.z()-origin.z()-base)]
 
     def _world(self, point):
         s, z = point
         length = self.cumulative[-1]
-        q = _point_on_path_distance(self.reference_path, self.cumulative, s)
-        base, _top, _offset = profile_at_fraction(self.values, s/length)
+        if len(self.reference_path)==2:
+            a,b=self.reference_path
+            q=a+(b-a)*(s/length)
+        else:
+            q = _point_on_path_distance(self.reference_path, self.cumulative, s)
+        base, _top, _offset = profile_at_fraction(
+            self.values,max(0.0,min(1.0,s/length)))
         return QVector3D(q.x(), q.y(),
                          self.wall.xform.map(QVector3D(0, 0, 0)).z()+base+z)
 
@@ -172,7 +199,8 @@ class WallPolygonTool(Tool):
                               8.0, float(getattr(viewport, "snap_threshold_px", 10.0)))
 
     def _candidate(self, points, *, replace=False):
-        polygon = normalize_polygon(points, self.values["length"])
+        polygon = normalize_polygon(points, self.values["length"],
+                                    allow_outside=replace)
         vals = copy.deepcopy(self.values)
         op = {"id": self.opening_id or uuid.uuid4().hex,
               "kind": "polygon", "polygon": polygon,
