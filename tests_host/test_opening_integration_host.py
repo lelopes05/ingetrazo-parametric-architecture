@@ -96,7 +96,9 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(selection)
         self.assertEqual(selection[0],wall.uid)
         self.assertEqual(selection[1],"pick-without-wall")
-        self.assertIsNone(selection[2])
+        # Slab-parity: a free rectangular void now exposes an exact logical
+        # corner even on its FIRST pick; it is no longer a generic outline.
+        self.assertEqual(selection[2],"vertex-3")
         self.assertIsNone(WallController._pick_virtual_opening(ctrl,vp,-1000,-1000))
 
     def test_native_pick_selection_without_mutating_wall_geometry(self):
