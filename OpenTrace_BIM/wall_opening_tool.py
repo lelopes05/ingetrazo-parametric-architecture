@@ -9,6 +9,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QVector3D
 from tools.base import Tool
 
+from .bim import new_ifc_guid
 from .commands import EditWall
 from .door_window_commands import CreateHostedFill
 from .door_window_core import normalize_fill
@@ -47,12 +48,14 @@ class WallOpeningTool(Tool):
         self.start_point = None
         self.kind = "opening"
         self.fill_anchor = "center"
+        self.void_preset = "generic"
 
-    def prepare(self, group, anchor, *, kind="opening", fill_anchor="center"):
+    def prepare(self, group, anchor, *, kind="opening", fill_anchor="center", void_preset="generic"):
         if kind not in ("opening", "door", "window"):
             raise WallError("Ferramenta de vão desconhecida.")
         self.kind = kind
         self.fill_anchor = fill_anchor
+        self.void_preset = void_preset
         self.group = group
         self.anchor = QVector3D(anchor)
         self.start_point = QVector3D(anchor)
@@ -72,9 +75,9 @@ class WallOpeningTool(Tool):
             ))
             if self.length < 0.30 or h < 0.40:
                 raise WallError("A parede é pequena demais para receber a abertura padrão.")
-            if self.kind == "door":
+            if self.kind == "door" or self.void_preset == "door":
                 width, oh, sill = min(0.90, self.length * 0.50), 2.10, 0.0
-            elif self.kind == "window":
+            elif self.kind == "window" or self.void_preset == "window":
                 width, oh, sill = min(1.20, self.length * 0.50), 1.20, min(0.90, h*0.30)
             else:
                 width = min(1.00, max(0.20, self.length * 0.30))
@@ -86,6 +89,7 @@ class WallOpeningTool(Tool):
             self.item = {
                 "id": uuid.uuid4().hex, "kind": "rect", "position": self.position,
                 "width": width, "sill": sill, "height": oh, "source_id": None,
+                "ifc_global_id": new_ifc_guid(),
             }
             self._clamp_position()
             self.controller.message(
