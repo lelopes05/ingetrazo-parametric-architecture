@@ -211,6 +211,7 @@ class WallController(QObject):
         self._make_panel()
         self._make_actions()
         self._make_path_palette()
+        self._make_opening_edit_palette()
         self._make_straight_mode_palette()
         self._make_curve_mode_palette()
         app.add_overlay(self.draw_reference_overlay)
@@ -831,7 +832,8 @@ class WallController(QObject):
         activate_wall_polygon(self.app)
         self.app.viewport.setFocus()
 
-    def edit_wall_polygon(self, operation="move_vertex"):
+    def edit_wall_polygon(self, operation="move_vertex", *, element_index=None,
+                          anchor=None):
         if self.target is None or not self._active_opening_id:
             return
         try:
@@ -840,10 +842,10 @@ class WallController(QObject):
                             if x.get("id") == self._active_opening_id), None)
             if not opening or opening.get("kind") != "polygon":
                 raise WallError("Selecione uma abertura livre para editar.")
-            origin = path_world(self.target)[0]
+            origin = QVector3D(anchor) if anchor is not None else path_world(self.target)[0]
             self.polygon_tool.prepare(self.target, origin,
                                       opening_id=self._active_opening_id,
-                                      operation=operation)
+                                      operation=operation,index=element_index)
             activate_wall_polygon(self.app)
             self.app.viewport.setFocus()
         except WallError as exc:
@@ -1020,11 +1022,22 @@ class WallController(QObject):
         self._loaded_key=None
         self._state_key=None
         self.schedule_refresh()
-        if handle:
-            from PySide6.QtGui import QCursor
-            pos=QCursor.pos()
+        try:
+            is_polygon=next(o.get("kind")=="polygon"
+                            for o in read_wall(wall)["openings"] if o["id"]==oid)
+        except (WallError,StopIteration):
+            is_polygon=False
+        from PySide6.QtGui import QCursor
+        pos=QCursor.pos()
+        if is_polygon:
+            QTimer.singleShot(0,lambda o=oid,h=handle,p=pos:
+                              self._show_opening_edit_palette(o,h,p))
+        elif handle:
             QTimer.singleShot(0,lambda o=oid,h=handle,p=pos:
                               self._show_opening_handle_menu(o,h,p))
+        else:
+            QTimer.singleShot(0,lambda o=oid,p=pos:
+                              self._show_opening_edit_palette(o,None,p))
 
     def _delete_virtual_opening(self, identity):
         if identity is None:
@@ -1112,6 +1125,124 @@ class WallController(QObject):
             activate_opening_handle_drag(self.app)
             self.app.viewport.setFocus()
         except (WallError,ValueError) as exc:
+            self.message(str(exc),error=True)
+
+    def _make_opening_edit_palette(self):
+        """Same reference-edge/vertex palette pattern used by the slab."""
+        self.opening_edit_palette=RadialPalette(self.app.window,popup=False,role="edit")
+        self.opening_edit_palette.setObjectName("ap_wall_opening_edit_palette")
+        self._opening_edit_wall=None
+        self._opening_edit_id=None
+        self._opening_edit_handle=None
+        self._opening_edit_anchor=None
+        row=self.opening_edit_palette.row
+        self.opening_edit_buttons={}
+        definitions=(
+            ("move_vertex","✥","Mover vértice selecionado"),
+            ("insert_vertex","＋","Inserir vértice nesta aresta"),
+            ("move_edge","↔","Mover aresta da abertura"),
+            ("stretch_edge","⇱","Estender/extrudar esta aresta"),
+            ("delete_vertex","⌫","Excluir vértice selecionado"),
+            ("move_opening","✥","Mover abertura inteira"),
+            ("delete_opening","⊘","Excluir abertura inteira"),
+        )
+        for key,symbol,tooltip in definitions:
+            btn=QToolButton(self.opening_edit_palette)
+            set_symbol_icon(btn,symbol)
+            btn.setToolTip(tooltip)
+            btn.setAutoRaise(True)
+            btn.setFixedSize(34,34)
+            btn.clicked.connect(lambda checked=False,op=key:
+                                self._run_opening_edit_action(op))
+            row.addWidget(btn)
+            self.opening_edit_buttons[key]=btn
+        self.opening_edit_palette.hide()
+
+    def _show_opening_edit_palette(self,oid,handle_id,global_pos):
+        wall=self._active_opening_wall
+        if wall is None or wall not in self.app.scene.groups:
+            return
+        try:
+            opening=next(o for o in read_wall(wall)["openings"]
+                         if o["id"]==oid)
+        except (WallError,StopIteration):
+            return
+        self._opening_edit_wall=wall
+        self._opening_edit_id=oid
+        self._opening_edit_handle=handle_id
+        self.target=wall
+        self.target_scene=self.app.scene
+        anchor=None
+        for key,lines,grips in self._opening_wires_for(wall):
+            if key!=oid:
+                continue
+            if handle_id is not None:
+                for grip_name,p in grips:
+                    if grip_name==handle_id:
+                        anchor=QVector3D(p)
+                        break
+                if anchor is None and handle_id.startswith("edge-"):
+                    index=int(handle_id.split("-",1)[1])
+                    if index<len(lines):
+                        a,b=lines[index]
+                        anchor=(QVector3D(a)+QVector3D(b))*.5
+            if anchor is None and lines:
+                a,b=lines[0]
+                anchor=(QVector3D(a)+QVector3D(b))*.5
+            break
+        self._opening_edit_anchor=anchor
+        polygon=opening.get("kind")=="polygon"
+        vertex=polygon and bool(handle_id and handle_id.startswith("vertex-"))
+        edge=polygon and bool(handle_id and handle_id.startswith("edge-"))
+        for op,btn in self.opening_edit_buttons.items():
+            btn.setVisible((op in ("move_vertex","delete_vertex") and vertex)
+                or (op in ("insert_vertex","move_edge","stretch_edge") and edge)
+                or op in ("move_opening","delete_opening"))
+        self.opening_edit_palette.show_at(global_pos)
+
+    def _run_opening_edit_action(self,operation):
+        self.opening_edit_palette.hide()
+        wall=self._opening_edit_wall
+        oid=self._opening_edit_id
+        handle=self._opening_edit_handle
+        anchor=self._opening_edit_anchor
+        if wall is None or oid is None:
+            return
+        self.target=wall
+        self.target_scene=self.app.scene
+        self._active_opening_wall=wall
+        self._active_opening_id=oid
+        try:
+            opening=next(o for o in read_wall(wall)["openings"]
+                         if o["id"]==oid)
+            if operation=="delete_opening":
+                self.delete_wall_opening()
+                return
+            if operation=="move_opening" and opening.get("kind")!="polygon":
+                self._start_opening_handle_drag(oid,"bottom-center","move")
+                return
+            if opening.get("kind")!="polygon":
+                raise WallError("Edição de vértices e arestas requer vão poligonal.")
+            index=int(handle.split("-",1)[1]) if handle is not None else None
+            if operation=="delete_vertex":
+                if index is None or not handle.startswith("vertex-"):
+                    raise WallError("Selecione o vértice que deseja excluir.")
+                from .wall_polygon import delete_vertex
+                values=read_wall(wall)
+                item=next(x for x in values["openings"] if x["id"]==oid)
+                updated=delete_vertex(item["polygon"],index,values["length"],
+                                      allow_outside=True)
+                item["polygon"]=updated
+                self.app.viewport.history.execute(EditWall(self.app.scene,wall,values))
+                if self.app.viewport.history.last_error:
+                    raise WallError(self.app.viewport.history.last_error)
+                self.app.viewport.notify_scene_changed()
+                self._state_key=None
+                self.schedule_refresh()
+                self.message("Vértice da abertura excluído.")
+                return
+            self.edit_wall_polygon(operation,element_index=index,anchor=anchor)
+        except (WallError,ValueError,StopIteration,TypeError) as exc:
             self.message(str(exc),error=True)
 
     def _show_opening_handle_menu(self,oid,handle_id,point):
@@ -1387,7 +1518,8 @@ class WallController(QObject):
                         wall_uid,oid,handle=virtual
                         # First click selects the void natively. Once selected,
                         # the second press can pull one of its six grips.
-                        if (handle and oid==self._active_opening_id
+                        if (handle and handle.startswith(("top-","bottom-"))
+                                and oid==self._active_opening_id
                                 and self._active_opening_wall is walls[0]):
                             self._pointer_opening_grip=(oid,handle,walls[0],
                                                        event.position())
