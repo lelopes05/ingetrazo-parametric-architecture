@@ -171,12 +171,16 @@ class WallController(QObject):
         self._opening_wire_key = None
         self._opening_wire_data = []
         self._fill_sync_key = None
+        self._active_opening_wall = None
         self._make_panel()
         self._make_actions()
         self._make_path_palette()
         self._make_straight_mode_palette()
         self._make_curve_mode_palette()
         app.add_overlay(self.draw_reference_overlay)
+        if hasattr(app, "add_pickable"):
+            app.add_pickable(self._pick_virtual_opening, self._select_virtual_opening,
+                             self._delete_virtual_opening)
         app.add_snap_provider(self._snap_provider)
         app.viewport.installEventFilter(self)
         # Selection/model changes emit sceneVersionChanged. Tool activation and
@@ -909,6 +913,63 @@ class WallController(QObject):
             self._load_opening_fields(read_wall(self.target).get("openings",[]))
             self.app.viewport.update()
 
+    def _pick_virtual_opening(self, viewport, px, py):
+        """Native Select-tool hit test, independent of wall selection.
+
+        No hidden scene Group is created: the stable identity is host UID +
+        opening ID. The host calls this before conventional geometry picking.
+        """
+        if viewport.scene.edit_group is not None:
+            return None
+        for wall in list(getattr(viewport.scene, "groups", ())):
+            if wall_record(wall) is None:
+                continue
+            if not viewport.scene.entity_visible(wall) or not viewport.scene.entity_selectable(wall):
+                continue
+            wires=self._opening_wires_for(wall)
+            if not wires:
+                continue
+            oid,handle=hit_test(viewport,wires,float(px),float(py),
+                                active_id=self._active_opening_id
+                                if wall is self._active_opening_wall else None)
+            if oid:
+                return (str(wall.uid),oid,handle)
+        return None
+
+    def _select_virtual_opening(self, identity):
+        if identity is None:
+            self._active_opening_wall=None
+            self._state_key=None
+            self.schedule_refresh()
+            return
+        wall_uid, oid, handle = identity
+        wall=next((w for w in self.app.scene.groups if getattr(w,"uid",None)==wall_uid
+                   and wall_record(w) is not None),None)
+        if wall is None:
+            return
+        self._active_opening_wall=wall
+        self._active_opening_id=oid
+        self._state_key=None
+        self.schedule_refresh()
+        if handle:
+            from PySide6.QtGui import QCursor
+            pos=QCursor.pos()
+            QTimer.singleShot(0,lambda o=oid,h=handle,p=pos:
+                              self._show_opening_handle_menu(o,h,p))
+
+    def _delete_virtual_opening(self, identity):
+        if identity is None:
+            return
+        wall_uid,oid,_handle=identity
+        wall=next((w for w in self.app.scene.groups if getattr(w,"uid",None)==wall_uid
+                   and wall_record(w) is not None),None)
+        if wall is None:return
+        self._active_opening_wall=wall
+        self.target=wall
+        self.target_scene=self.app.scene
+        self._active_opening_id=oid
+        self.delete_wall_opening()
+
     def _opening_wires_for(self,wall):
         key=(id(self.app.scene),self.app.scene.version,id(wall))
         if self._opening_wire_key!=key:
@@ -1369,6 +1430,7 @@ class WallController(QObject):
         self._queued = False
         scene, vp = self.app.scene, self.app.viewport
         if scene is not self._document:
+            self._active_opening_wall = None
             self._document = scene
             self.tool.reset()
             self.curve_create_tool.reset()
@@ -1430,6 +1492,12 @@ class WallController(QObject):
                 vp.notify_scene_changed()
 
         walls = selected_walls(scene)
+        # Native extension picks are intentionally absent from scene.selection;
+        # represent the selected virtual opening through its host in the editor.
+        current_pick=getattr(vp,"extension_pick",None)
+        if (current_pick is not None and self._active_opening_wall in scene.groups
+                and self._active_opening_wall not in walls):
+            walls=[self._active_opening_wall]
         selection_key = tuple(sorted(id(w) for w in walls))
         key = (id(scene), scene.version, id(vp.active_tool), id(scene.edit_group),
                selection_key)
