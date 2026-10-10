@@ -197,6 +197,37 @@ class SlabLikeOpeningEditTests(unittest.TestCase):
             window.deleteLater()
             self.qapp.processEvents()
 
+    def test_free_rectangle_corner_and_edge_pick_promote_only_when_edited(self):
+        scene,wall=make_scene();vp=View(scene)
+        wires=all_opening_wires(wall,read_wall(wall))
+        # The existing rectangle is not converted by highlighting/picking.
+        opts={"rect-two"}
+        self.assertEqual(hit_test(vp,wires,385,-50,
+                                  editable_rect_ids=opts),
+                         ("rect-two","vertex-0"))
+        self.assertEqual(hit_test(vp,wires,410,-50,
+                                  editable_rect_ids=opts),
+                         ("rect-two","edge-0"))
+        self.assertEqual(opening(wall,"rect-two")["kind"],"rect")
+        tool=WallPolygonTool(controller(scene))
+        tool.prepare(wall,QVector3D(4.1,0,1.9),
+                     opening_id="rect-two",operation="move_edge",
+                     index=2,convert_rect=True)
+        tool.on_activate(vp)
+        self.assertEqual(tool.edge_index,2)
+        tool.on_hover(ctx(vp,4.1,2.1))
+        self.assertEqual(len(vp.history.commands),0)
+        tool.on_click(ctx(vp,4.1,2.1))
+        self.assertEqual(len(vp.history.commands),1)
+        converted=opening(wall,"rect-two")
+        self.assertEqual(converted["kind"],"polygon")
+        self.assertEqual(len(converted["polygon"]),4)
+        self.assertAlmostEqual(converted["polygon"][2][1],2.1,places=5)
+        self.assertEqual(converted["ifc_global_id"],"rect-guid")
+        vp.history.commands[0].undo(scene)
+        self.assertEqual(opening(wall,"rect-two")["kind"],"rect")
+        self.assertAlmostEqual(opening(wall,"rect-two")["height"],1.4)
+
     def test_move_rectangular_opening_on_wall_plane_with_single_undo(self):
         scene,wall=make_scene();vp=View(scene);ctl=controller(scene)
         tool=OpeningHandleDragTool(ctl)
