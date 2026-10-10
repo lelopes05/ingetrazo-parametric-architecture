@@ -206,6 +206,8 @@ class WallController(QObject):
         self._fill_sync_key = None
         self._active_opening_wall = None
         self._fields_opening_id = None
+        self._pointer_opening_grip = None
+        self._pointer_opening_drag = False
         self._make_panel()
         self._make_actions()
         self._make_path_palette()
@@ -1317,6 +1319,45 @@ class WallController(QObject):
         return None if best is None else ("segment", QVector3D(best[1]))
 
     def eventFilter(self, obj, event):
+        vp=self.app.viewport
+        # Direct press / pull / release on an already-selected virtual grip.
+        # A stationary click still opens the radial operation menu. No host
+        # mesh mutation happens until release, so one gesture = one Undo.
+        if obj is vp and self._pointer_opening_grip is not None:
+            pending=self._pointer_opening_grip
+            if event.type()==QEvent.MouseMove:
+                if not (event.buttons() & Qt.LeftButton):
+                    self._pointer_opening_grip=None
+                    return True
+                if (not self._pointer_opening_drag
+                        and (event.position()-pending[3]).manhattanLength()>=5):
+                    oid,handle,wall,_start=pending
+                    action=("height" if handle=="top-center" else
+                            "position" if handle=="bottom-center" else "width")
+                    self.target=wall
+                    self._start_opening_handle_drag(oid,handle,action)
+                    self._pointer_opening_drag=(vp.active_tool is self.opening_drag_tool)
+                if self._pointer_opening_drag:
+                    ctx=vp._build_ctx(event)
+                    if ctx is not None:
+                        self.opening_drag_tool.on_hover(ctx)
+                return True
+            if event.type()==QEvent.MouseButtonRelease and event.button()==Qt.LeftButton:
+                self._pointer_opening_grip=None
+                dragging=self._pointer_opening_drag
+                self._pointer_opening_drag=False
+                if dragging:
+                    ctx=vp._build_ctx(event)
+                    if ctx is not None:
+                        self.opening_drag_tool.on_hover(ctx)
+                        self.opening_drag_tool.on_click(ctx)
+                    else:
+                        self.opening_drag_tool.on_cancel(vp)
+                else:
+                    _oid,_handle,_wall,_start=pending
+                    QTimer.singleShot(0,lambda o=_oid,h=_handle,p=event.globalPosition().toPoint():
+                                      self._show_opening_handle_menu(o,h,p))
+                return True
         if obj is getattr(self, "toolbar", None) and event.type() in (QEvent.Resize, QEvent.Show, QEvent.Move):
             QTimer.singleShot(0, self._position_toolbar_grip)
             return False
@@ -1335,8 +1376,18 @@ class WallController(QObject):
                     # Leave opening hits to the host's native extension
                     # selection pipeline. Intercepting MouseButtonPress here
                     # stole the click before SelectTool could commit its pick.
-                    if self._pick_virtual_opening(vp,event.position().x(),
-                                                  event.position().y()) is not None:
+                    virtual=self._pick_virtual_opening(vp,event.position().x(),
+                                                        event.position().y())
+                    if virtual is not None:
+                        wall_uid,oid,handle=virtual
+                        # First click selects the void natively. Once selected,
+                        # the second press can pull one of its six grips.
+                        if (handle and oid==self._active_opening_id
+                                and self._active_opening_wall is walls[0]):
+                            self._pointer_opening_grip=(oid,handle,walls[0],
+                                                       event.position())
+                            self._pointer_opening_drag=False
+                            return True
                         return False
                     hit = self._reference_context(
                         event.position().x(), event.position().y(), walls[0])
