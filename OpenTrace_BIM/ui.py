@@ -950,6 +950,7 @@ class WallController(QObject):
             return
         oid=self.opening_selector.currentData()
         if oid:
+            self._active_opening_wall=self.target
             self._active_opening_id=oid
             self._loaded_key=None
             self._state_key=None
@@ -1371,6 +1372,10 @@ class WallController(QObject):
                 vp = self.app.viewport
                 select_tool = host_tool(self.app, "select")
                 walls = selected_walls(self.app.scene)
+                if (getattr(vp,"extension_pick",None) is not None
+                        and self._active_opening_wall in self.app.scene.groups
+                        and self._active_opening_wall not in walls):
+                    walls=[self._active_opening_wall]
                 if (vp.active_tool is select_tool and len(walls) == 1
                         and event.modifiers() == Qt.NoModifier):
                     # Leave opening hits to the host's native extension
