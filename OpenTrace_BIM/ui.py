@@ -488,8 +488,15 @@ class WallController(QObject):
             self.begin_curve_arc)
         self.opening_btn = button(
             "▣",
-            t("Criar abertura retangular hospedada nesta parede."),
+            "Vão retangular livre. Use a seta para escolher vão de porta/janela.",
             self.begin_wall_opening)
+        void_menu=QMenu(self.path_palette)
+        void_menu.addAction("Vão de porta (sem folha)",
+                            lambda:self.begin_wall_opening("door"))
+        void_menu.addAction("Vão de janela (sem esquadria)",
+                            lambda:self.begin_wall_opening("window"))
+        self.opening_btn.setMenu(void_menu)
+        self.opening_btn.setPopupMode(QToolButton.MenuButtonPopup)
         self.door_btn = button("D", "Porta paramétrica com vão automático.", lambda:self.begin_hosted_fill("door"))
         self.window_btn = button("J", "Janela paramétrica com vão automático.", lambda:self.begin_hosted_fill("window"))
         self.polygon_btn = button(
@@ -751,12 +758,12 @@ class WallController(QObject):
         except WallError as exc:
             self.message(str(exc),error=True)
 
-    def begin_wall_opening(self):
+    def begin_wall_opening(self, preset="generic"):
         wall, anchor = self._palette_target()
         self.hide_path_palette()
         if wall is None:
             return
-        self.opening_tool.prepare(wall, anchor)
+        self.opening_tool.prepare(wall, anchor, void_preset=preset)
         activate_wall_opening(self.app)
         self.app.viewport.setFocus()
 
