@@ -161,7 +161,7 @@ def _contains_visible_face(viewport, lines, x, y, *, polygon=False):
 
 
 def hit_test(viewport, wires, x, y, *, active_id=None, threshold=9.0,
-             allow_interior=False):
+             allow_interior=False, editable_rect_ids=()):
     """Return (opening_id, logical handle) as in the slab reference editor.
 
     Polygon vertices outrank perimeter edges; line indices map to stable
@@ -170,8 +170,11 @@ def hit_test(viewport, wires, x, y, *, active_id=None, threshold=9.0,
     """
     vertex_best=None
     edge_best=None
+    editable_rect_ids=set(editable_rect_ids)
     for opening_id,lines,grips in wires:
         polygon=bool(grips and grips[0][0].startswith("vertex-"))
+        convert_rect=(not polygon and opening_id in editable_rect_ids
+                      and len(lines)>=12)
         if polygon or opening_id==active_id:
             for handle_id,p in grips:
                 q=viewport._world_to_pixel(p)
@@ -179,15 +182,40 @@ def hit_test(viewport, wires, x, y, *, active_id=None, threshold=9.0,
                 d=((x-q[0])**2+(y-q[1])**2)**.5
                 if d<=threshold and (vertex_best is None or d<vertex_best[0]):
                     vertex_best=(d,opening_id,handle_id)
+        n=len(grips) if polygon else 0
+        if polygon:
+            # Same vertex on back elevation face can be picked from either
+            # direction (logical indices still name the original polygon).
+            for i in range(n):
+                q=viewport._world_to_pixel(lines[n+i][0])
+                if q is not None:
+                    d=((x-q[0])**2+(y-q[1])**2)**.5
+                    if d<=threshold and (vertex_best is None or d<vertex_best[0]):
+                        vertex_best=(d,opening_id,f"vertex-{i}")
+        if convert_rect:
+            near=(lines[0][0],lines[0][1],lines[4][1],lines[4][0])
+            far=(lines[2][1],lines[2][0],lines[6][0],lines[6][1])
+            for corners in (near,far):
+                for i,p in enumerate(corners):
+                    q=viewport._world_to_pixel(p)
+                    if q is None:continue
+                    d=((x-q[0])**2+(y-q[1])**2)**.5
+                    if d<=threshold and (vertex_best is None or d<vertex_best[0]):
+                        vertex_best=(d,opening_id,f"vertex-{i}")
         # Polygon front/back edges map to stable logical edges, even when
         # the rendered outline contains extra perpendicular depth segments.
-        n=len(grips) if polygon else 0
+        rect_edges={0:0,9:1,4:2,8:3,2:0,10:1,6:2,11:3}
         for i,(a,b) in enumerate(lines):
             pa,pb=viewport._world_to_pixel(a),viewport._world_to_pixel(b)
             if pa is None or pb is None:continue
             d=_dist_segment(x,y,pa,pb)
             if d<=threshold and (edge_best is None or d<edge_best[0]):
-                handle=f"edge-{i%n}" if polygon and i<2*n else None
+                if polygon and i<2*n:
+                    handle=f"edge-{i%n}"
+                elif convert_rect and i in rect_edges:
+                    handle=f"edge-{rect_edges[i]}"
+                else:
+                    handle=None
                 edge_best=(d,opening_id,handle)
     if vertex_best is not None:
         return vertex_best[1],vertex_best[2]
