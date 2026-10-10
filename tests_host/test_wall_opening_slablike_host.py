@@ -329,7 +329,7 @@ class SlabLikeOpeningEditTests(unittest.TestCase):
             ctl=window._arquitetura_parametrica_controller
             btn=ctl.opening_toolbar_button
             self.assertEqual(btn.objectName(),"opentrace_opening_toolbar_button")
-            self.assertIs(btn.parent(),window)  # QToolBar reparents widgets
+            self.assertIs(btn.parent(),ctl.toolbar)  # QToolBar owns its widgets
             self.assertEqual(btn.defaultAction().text(),"Abertura")
             self.assertEqual(len(btn.menu().actions()),2)
             ctl.opening_toolbar_action.trigger()
