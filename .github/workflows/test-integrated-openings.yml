@@ -62,22 +62,40 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Archive test-only plugin, never release
+      - name: Stage directly installable plugin ZIP (no ZIP inside ZIP)
         run: |
           python - <<'PY'
-          import pathlib, zipfile, hashlib
-          root=pathlib.Path("OpenTrace_BIM")
-          out=pathlib.Path("opentrace-integrated-openings-EXPERIMENTAL.zip")
-          with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as z:
-              for p in sorted(root.rglob("*")):
-                  if p.is_file() and "__pycache__" not in p.parts and p.suffix not in (".pyc",):
-                      z.write(p,p.as_posix())
-          data=out.read_bytes()
-          pathlib.Path(str(out)+".sha256").write_text(hashlib.sha256(data).hexdigest()+"  "+out.name+"\n")
+          import pathlib, shutil, tempfile, zipfile
+          root = pathlib.Path("OpenTrace_BIM")
+          stage = pathlib.Path("installable")
+          assert (root / "__init__.py").is_file(), "Package entry point missing"
+          assert not stage.exists(), "Staging directory must start empty"
+          # GitHub Artifacts creates the downloadable ZIP. Upload the plugin
+          # DIRECTORY, never an already compressed inner ZIP.
+          shutil.copytree(root, stage / "OpenTrace_BIM",
+                          ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+          contents = sorted(p.relative_to(stage).as_posix()
+                            for p in stage.rglob("*") if p.is_file())
+          assert contents and "OpenTrace_BIM/__init__.py" in contents
+          assert all(p.startswith("OpenTrace_BIM/") for p in contents)
+          assert not any(p.lower().endswith(".zip") for p in contents)
+          # Verify expected one-folder archive structure before uploading.
+          with tempfile.TemporaryDirectory() as td:
+              test_zip = pathlib.Path(td) / "install-check.zip"
+              with zipfile.ZipFile(test_zip, "w", zipfile.ZIP_DEFLATED) as z:
+                  for p in sorted(stage.rglob("*")):
+                      if p.is_file():
+                          z.write(p, p.relative_to(stage))
+              with zipfile.ZipFile(test_zip) as z:
+                  assert z.namelist() == contents
+                  z.extractall(pathlib.Path(td) / "extracted")
+              assert (pathlib.Path(td) / "extracted/OpenTrace_BIM/__init__.py").is_file()
+          print("INSTALLABLE: 1 ZIP / OpenTrace_BIM/ /", len(contents), "files")
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: opentrace-integrated-openings-EXPERIMENTAL
-          path: |
-            opentrace-integrated-openings-EXPERIMENTAL.zip
-            opentrace-integrated-openings-EXPERIMENTAL.zip.sha256
+          # The GitHub artifact download IS the ZIP, not a wrapper.
+          name: OpenTrace_BIM-EXPERIMENTAL-INSTALL
+          path: installable/
+          if-no-files-found: error
+          retention-days: 30
