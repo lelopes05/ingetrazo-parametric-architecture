@@ -221,6 +221,34 @@ def hit_test(viewport, wires, x, y, *, active_id=None, threshold=9.0,
                 edge_best=(d,opening_id,handle)
     if vertex_best is not None:
         return vertex_best[1],vertex_best[2]
+    # Mid-edge handles mirror slab boundary reference controls. Picking a
+    # midpoint is independent of noisy projected mesh/depth edges and works
+    # again after a previous wall EditWall/Undo rebuilt all faces.
+    midpoint_best=None
+    for opening_id,lines,grips in wires:
+        polygon=bool(grips and grips[0][0].startswith("vertex-"))
+        rectangle=(opening_id in editable_rect_ids and not polygon
+                   and len(lines)>=12)
+        if polygon:
+            logical_edges=tuple((i,lines[i]) for i in range(len(grips)))
+            logical_edges+=tuple((i,lines[len(grips)+i])
+                                 for i in range(len(grips)))
+        elif rectangle:
+            logical_edges=tuple((j,lines[i]) for i,j in
+                                ((0,0),(9,1),(4,2),(8,3),
+                                 (2,0),(10,1),(6,2),(11,3)))
+        else:
+            continue
+        for index,(a,b) in logical_edges:
+            q=viewport._world_to_pixel((a+b)*.5)
+            if q is None:
+                continue
+            d=((x-q[0])**2+(y-q[1])**2)**.5
+            if d<=max(threshold,10.0) and (
+                    midpoint_best is None or d<midpoint_best[0]):
+                midpoint_best=(d,opening_id,f"edge-{index}")
+    if midpoint_best is not None:
+        return midpoint_best[1],midpoint_best[2]
     if edge_best is not None:
         return edge_best[1],edge_best[2]
     if allow_interior:
