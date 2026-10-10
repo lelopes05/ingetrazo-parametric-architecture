@@ -30,6 +30,57 @@ def scene_wall(openings=(), length=5.0):
 
 
 class IntegratedOpeningRuntimeTests(unittest.TestCase):
+    def test_selected_wall_overlay_clips_extreme_coordinates_before_qpainter(self):
+        from PySide6.QtGui import QImage, QColor, QPainter
+        from OpenTrace_BIM.ui import WallController
+        from OpenTrace_BIM.overlay_safety import visible_segment
+        scene,wall=scene_wall([{"id":"extreme-clipping",
+            "kind":"rect","position":2.5,"width":1.0,
+            "sill":0,"height":2.1}])
+        scene.selection.add(wall)
+
+        class ExtremeViewport:
+            def width(self):return 800
+            def height(self):return 600
+            def _world_to_pixel(self,p):
+                return (100.0 + p.x()*1e9, 120.0-p.z()*1e9)
+            def _clip_segment_front(self,a,b):return (a,b)
+            def _clip_pixel_line(self,p0,p1,margin=32.0):
+                x0,y0=p0;x1,y1=p1
+                dx,dy=x1-x0,y1-y0
+                lo,hi=0.0,1.0
+                for p,q in ((-dx,x0+margin),(dx,800+margin-x0),
+                            (-dy,y0+margin),(dy,600+margin-y0)):
+                    if abs(p)<1e-16:
+                        if q<0:return None
+                        continue
+                    t=q/p
+                    if p<0:lo=max(lo,t)
+                    else:hi=min(hi,t)
+                    if lo>hi:return None
+                return ((x0+lo*dx,y0+lo*dy),(x0+hi*dx,y0+hi*dy))
+
+        vp=ExtremeViewport()
+        clipped=visible_segment(vp,QVector3D(0,0,0),QVector3D(5,0,0))
+        self.assertIsNotNone(clipped)
+        self.assertLessEqual(max(abs(v) for pt in clipped for v in pt),832)
+        ctrl=SimpleNamespace(app=SimpleNamespace(scene=scene),
+                             target=wall,_active_opening_wall=None,
+                             _active_opening_id="extreme-clipping",
+                             _opening_wires_for=lambda host:all_opening_wires(host,read_wall(host)),
+                             curve_create_tool=None,move_vertex_continue_tool=None)
+        vp.active_tool=None
+        vp.extension_pick=None
+        image=QImage(800,600,QImage.Format_ARGB32)
+        image.fill(QColor("white"))
+        painter=QPainter(image)
+        try:
+            WallController.draw_reference_overlay(ctrl,vp,painter)
+        finally:
+            painter.end()
+        self.assertTrue(any(image.pixelColor(x,120)!=QColor("white")
+                            for x in range(100,700)))
+
     def test_native_opening_selection_without_selected_wall(self):
         from OpenTrace_BIM.ui import WallController
         scene,wall=scene_wall([{"id":"pick-without-wall",
