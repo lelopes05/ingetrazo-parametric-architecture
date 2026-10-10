@@ -142,6 +142,61 @@ class SlabLikeOpeningEditTests(unittest.TestCase):
             self.assertAlmostEqual(b[1]-a[1],.3,places=5)
         self.assertEqual(len(vp.history.commands),4)
 
+    def test_delete_polygon_vertex_via_palette_keeps_valid_edge_metadata_and_undo(self):
+        from OpenTrace_BIM.ui import WallController
+        scene,wall=make_scene()
+        vp=View(scene)
+        ctl=SimpleNamespace(
+            app=SimpleNamespace(scene=scene,viewport=vp),
+            opening_edit_palette=SimpleNamespace(hide=lambda:None),
+            _opening_edit_wall=wall,
+            _opening_edit_id="polygon-one",
+            _opening_edit_handle="vertex-2",
+            _opening_edit_anchor=None,
+            _active_opening_wall=wall,
+            _active_opening_id="polygon-one",
+            target=wall,target_scene=scene,
+            _state_key=None,schedule_refresh=lambda:None,
+            message=lambda *a,**kw:None)
+        before=copy.deepcopy(read_wall(wall)["openings"])
+        WallController._run_opening_edit_action(ctl,"delete_vertex")
+        poly=opening(wall)
+        self.assertEqual(len(poly["polygon"]),3)
+        self.assertEqual(len(poly["edges"]),3)
+        self.assertEqual(poly["ifc_global_id"],"persisted-poly-guid")
+        self.assertEqual(opening(wall,"rect-two"),before[1])
+        self.assertEqual(len(vp.history.commands),1)
+        vp.history.commands[0].undo(scene)
+        self.assertEqual(read_wall(wall)["openings"],before)
+
+    def test_real_qt_radial_palette_arms_selected_polygon_edge_without_repick(self):
+        from views.main_window import MainWindow
+        from views.extension_api import ExtensionApp
+        from OpenTrace_BIM import setup
+        window=MainWindow()
+        try:
+            setup(ExtensionApp(window,"OpenTrace_BIM"))
+            ctl=window._arquitetura_parametrica_controller
+            _old,wall=make_scene()
+            scene=window.viewport.scene
+            scene.groups.append(wall)
+            scene.version+=1
+            ctl._active_opening_wall=wall
+            ctl._active_opening_id="polygon-one"
+            ctl.target=wall
+            ctl._show_opening_edit_palette("polygon-one","edge-2",QPoint(130,160))
+            self.assertTrue(ctl.opening_edit_palette.isVisible())
+            self.assertTrue(ctl.opening_edit_buttons["move_edge"].isVisible())
+            self.assertTrue(ctl.opening_edit_buttons["insert_vertex"].isVisible())
+            self.assertFalse(ctl.opening_edit_buttons["move_vertex"].isVisible())
+            ctl._run_opening_edit_action("move_edge")
+            self.assertIs(window.viewport.active_tool,ctl.polygon_tool)
+            self.assertEqual(ctl.polygon_tool.edge_index,2)
+            self.assertIsNotNone(ctl.polygon_tool.pick_anchor)
+        finally:
+            window.deleteLater()
+            self.qapp.processEvents()
+
     def test_move_rectangular_opening_on_wall_plane_with_single_undo(self):
         scene,wall=make_scene();vp=View(scene);ctl=controller(scene)
         tool=OpeningHandleDragTool(ctl)
