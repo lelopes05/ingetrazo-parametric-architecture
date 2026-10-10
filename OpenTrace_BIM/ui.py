@@ -1735,6 +1735,31 @@ class WallController(QObject):
                             px=dot(p)
                             if px is not None:
                                 painter.drawRect(QRectF(px[0]-4,px[1]-4,8,8))
+                        # Slab-style logical edge handles: orange circle
+                        # at each midpoint, distinct from square vertices.
+                        # Depth/thickness edges are not editing handles.
+                        is_polygon=bool(grips and grips[0][0].startswith("vertex-"))
+                        rect_free=False
+                        if not is_polygon:
+                            try:
+                                op=next(o for o in read_wall(wall)["openings"]
+                                        if str(o.get("id"))==oid)
+                                rect_free=not op.get("source_id") and not op.get("fill")
+                            except (WallError,StopIteration):
+                                pass
+                        if is_polygon:
+                            edge_indices=range(len(grips))
+                        elif rect_free and len(segments)>=12:
+                            edge_indices=(0,9,4,8)
+                        else:
+                            edge_indices=()
+                        painter.setPen(QPen(QColor("#cf651c"),1.6))
+                        painter.setBrush(QColor("#fff0d5"))
+                        for i in edge_indices:
+                            a,b=segments[i]
+                            q=dot((a+b)*.5)
+                            if q is not None:
+                                painter.drawEllipse(QRectF(q[0]-4.4,q[1]-4.4,8.8,8.8))
 
             # ArchiCAD-like hotspot at the mathematical centre of a selected arc.
             try:
