@@ -929,10 +929,11 @@ class WallController(QObject):
             wires=self._opening_wires_for(wall)
             if not wires:
                 continue
-            oid,handle=hit_test(viewport,wires,float(px),float(py),
-                                active_id=self._active_opening_id
-                                if wall is self._active_opening_wall else None)
-            if oid:
+            result=hit_test(viewport,wires,float(px),float(py),
+                            active_id=self._active_opening_id
+                            if wall is self._active_opening_wall else None)
+            if result is not None:
+                oid,handle=result
                 return (str(wall.uid),oid,handle)
         return None
 
