@@ -1233,6 +1233,7 @@ class WallController(QObject):
                 updated=delete_vertex(item["polygon"],index,values["length"],
                                       allow_outside=True)
                 item["polygon"]=updated
+                item["edges"]=[{"type":"line"} for _ in updated]
                 self.app.viewport.history.execute(EditWall(self.app.scene,wall,values))
                 if self.app.viewport.history.last_error:
                     raise WallError(self.app.viewport.history.last_error)
