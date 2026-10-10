@@ -305,6 +305,60 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         for key in ("position","sill","height"):
             self.assertEqual(updated[1][key],original["openings"][1][key])
 
+    def test_grip_pull_interactive_preview_and_single_undo_step(self):
+        from OpenTrace_BIM.opening_handle_drag import OpeningHandleDragTool
+        scene,wall=scene_wall([{"id":"grip-pull","position":2.5,"width":1.0,
+                                "sill":.6,"height":1.2}])
+        edits=[]
+        class History:
+            last_error=None
+            def execute(self,command):
+                edits.append(command)
+                command.do(scene)
+        vp=SimpleNamespace(scene=scene,history=History(),update=lambda:None,
+                           notify_scene_changed=lambda:None)
+        ctr=SimpleNamespace(app=SimpleNamespace(scene=scene),
+                            _find_linked_fill=lambda opening:None,
+                            message=lambda *a,**kw:None,
+                            return_to_select=lambda:None,
+                            _state_key=None,_loaded_key=None)
+        tool=OpeningHandleDragTool(ctr)
+        tool.prepare(wall,"grip-pull","bottom-right","width")
+        tool.on_activate(vp)
+        self.assertIsNotNone(tool.grip)
+        self.assertAlmostEqual(tool.station,3.0,places=5)
+        tool.on_hover(SimpleNamespace(viewport=vp,world=QVector3D(3.35,0,.6)))
+        self.assertGreater(len(tool.rubber_band_lines()),0)
+        self.assertAlmostEqual(read_wall(wall)["openings"][0]["width"],1.0)
+        tool.on_click(SimpleNamespace(viewport=vp,world=QVector3D(3.35,0,.6)))
+        self.assertEqual(len(edits),1)
+        self.assertAlmostEqual(read_wall(wall)["openings"][0]["width"],1.35,places=5)
+        self.assertEqual(read_wall(wall)["openings"][0]["id"],"grip-pull")
+        edits[0].undo(scene)
+        self.assertAlmostEqual(read_wall(wall)["openings"][0]["width"],1.0)
+
+    def test_parametric_opening_pick_inside_edited_wall_group_exits_safely(self):
+        from OpenTrace_BIM.ui import WallController
+        scene,wall=scene_wall([{"id":"inside-group","position":2.5,"width":1.0,
+                                "sill":.7,"height":1.1}])
+        scene.begin_group_edit(wall)
+        self.assertIs(scene.edit_group,wall)
+        vp=FakeViewport()
+        vp.scene=scene
+        vp.end_group_edit=scene.end_group_edit
+        ctr=SimpleNamespace(app=SimpleNamespace(scene=scene,viewport=vp),
+                            _active_opening_id=None,_active_opening_wall=None,
+                            _opening_wires_for=lambda w:all_opening_wires(w,read_wall(w)),
+                            _state_key=None,_loaded_key=None,
+                            schedule_refresh=lambda:None)
+        result=WallController._pick_virtual_opening(ctr,vp,250,-130)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[1],"inside-group")
+        WallController._select_virtual_opening(ctr,result)
+        self.assertIsNone(scene.edit_group)
+        self.assertIs(ctr._active_opening_wall,wall)
+        self.assertEqual(ctr._active_opening_id,"inside-group")
+
     def test_polygon_opening_recedes_through_host_and_restores(self):
         from OpenTrace_BIM.model import path_world
         opening={"id":"poly-recede","kind":"polygon",
