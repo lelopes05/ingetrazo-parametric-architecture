@@ -228,6 +228,118 @@ class SlabLikeOpeningEditTests(unittest.TestCase):
         self.assertEqual(opening(wall,"rect-two")["kind"],"rect")
         self.assertAlmostEqual(opening(wall,"rect-two")["height"],1.4)
 
+    def test_same_polygon_opening_can_edit_two_distinct_edges_consecutively(self):
+        """Regression: first EditWall invalidates native pick, second must work."""
+        from OpenTrace_BIM.ui import WallController
+        from OpenTrace_BIM.host import activate_select
+        scene,wall=make_scene()
+        vp=View(scene)
+        ctl=controller(scene)
+        scene.selection.add(wall)
+        ctl._active_opening_wall=wall
+        ctl._active_opening_id="polygon-one"
+        ctl.app.viewport=vp
+        for index,dz in ((2,.15),(0,-.10)):
+            wires=all_opening_wires(wall,read_wall(wall))
+            # Midpoint of a logical edge, rather than a mesh thickness edge.
+            mid=(wires[0][1][index][0]+wires[0][1][index][1])*.5
+            selected=hit_test(vp,wires,mid.x()*100,-mid.z()*100,
+                              active_id="polygon-one")
+            self.assertEqual(selected,("polygon-one",f"edge-{index}"))
+            tool=WallPolygonTool(ctl)
+            tool.prepare(wall,mid,opening_id="polygon-one",
+                         operation="move_edge",index=index)
+            tool.on_activate(vp)
+            before=len(vp.history.commands)
+            tool.on_hover(ctx(vp,mid.x(),mid.z()+dz))
+            tool.on_click(ctx(vp,mid.x(),mid.z()+dz))
+            self.assertEqual(len(vp.history.commands),before+1)
+            self.assertIn(wall,scene.selection)
+            self.assertEqual(ctl._active_opening_id,"polygon-one")
+            self.assertIs(ctl._active_opening_wall,wall)
+        self.assertEqual(len(vp.history.commands),2)
+        vp.history.commands[-1].undo(scene)
+        self.assertEqual(len(read_wall(wall)["openings"]),2)
+        self.assertEqual(opening(wall)["ifc_global_id"],"persisted-poly-guid")
+
+    def test_virtual_pick_cleared_after_wall_edit_retains_parametric_target(self):
+        from OpenTrace_BIM.ui import WallController
+        scene,wall=make_scene()
+        scene.selection.add(wall)
+        calls=[]
+        ctl=SimpleNamespace(app=SimpleNamespace(scene=scene),
+                            _active_opening_wall=wall,
+                            _active_opening_id="polygon-one",
+                            _state_key=("old",),
+                            schedule_refresh=lambda:calls.append("refresh"))
+        WallController._select_virtual_opening(ctl,None)
+        self.assertEqual(ctl._active_opening_id,"polygon-one")
+        self.assertIs(ctl._active_opening_wall,wall)
+        self.assertEqual(calls,["refresh"])
+        scene.selection.clear()
+        WallController._select_virtual_opening(ctl,None)
+        self.assertIsNone(ctl._active_opening_wall)
+        self.assertIsNone(ctl._active_opening_id)
+
+    def test_toolbar_opening_can_pick_host_without_preselect(self):
+        from OpenTrace_BIM.wall_opening_tool import WallOpeningTool
+        scene,wall=make_scene()
+        vp=View(scene)
+        vp.pick_group=lambda x,y:wall
+        vp.scene.entity_visible=lambda entity:True
+        vp.scene.entity_selectable=lambda entity:True
+        ctl=controller(scene)
+        tool=WallOpeningTool(ctl)
+        tool.prepare(None,None,kind="opening")
+        tool.on_activate(vp)
+        self.assertIsNone(tool.group)
+        self.assertEqual(len(vp.history.commands),0)
+        tool.on_hover(ctx(vp,3.1,1.2))
+        self.assertIs(tool.group,wall)
+        self.assertIsNotNone(tool.item)
+        tool.on_click(ctx(vp,3.1,1.2))
+        self.assertEqual(len(vp.history.commands),1)
+        self.assertEqual(len(read_wall(wall)["openings"]),3)
+        self.assertIn(wall,scene.selection)
+        self.assertIs(ctl._active_opening_wall,wall)
+        vp.history.commands[0].undo(scene)
+        self.assertEqual(len(read_wall(wall)["openings"]),2)
+
+    def test_toolbar_polygon_acquires_wall_and_click_starts_first_vertex(self):
+        scene,wall=make_scene()
+        vp=View(scene)
+        vp.pick_group=lambda x,y:wall
+        ctl=controller(scene)
+        tool=WallPolygonTool(ctl)
+        tool.prepare(None,None)
+        tool.on_activate(vp)
+        self.assertIsNone(tool.wall)
+        tool.on_click(ctx(vp,2.6,0.4))
+        self.assertIs(tool.wall,wall)
+        self.assertEqual(len(tool.points),1)
+        self.assertAlmostEqual(tool.points[0][0],2.6,places=5)
+
+    def test_real_toolbar_opening_button_is_visible_and_starts_tool_without_wall(self):
+        from views.main_window import MainWindow
+        from views.extension_api import ExtensionApp
+        from OpenTrace_BIM import setup
+        window=MainWindow()
+        try:
+            setup(ExtensionApp(window,"OpenTrace_BIM"))
+            ctl=window._arquitetura_parametrica_controller
+            btn=ctl.opening_toolbar_button
+            self.assertEqual(btn.objectName(),"opentrace_opening_toolbar_button")
+            self.assertIs(btn.parent(),window)  # QToolBar reparents widgets
+            self.assertEqual(btn.defaultAction().text(),"Abertura")
+            self.assertEqual(len(btn.menu().actions()),2)
+            ctl.opening_toolbar_action.trigger()
+            self.assertIs(window.viewport.active_tool,ctl.opening_tool)
+            self.assertIsNone(ctl.opening_tool.group)
+            self.assertTrue(bool(ctl.toolbar.actions()))
+        finally:
+            window.deleteLater()
+            self.qapp.processEvents()
+
     def test_move_rectangular_opening_on_wall_plane_with_single_undo(self):
         scene,wall=make_scene();vp=View(scene);ctl=controller(scene)
         tool=OpeningHandleDragTool(ctl)
