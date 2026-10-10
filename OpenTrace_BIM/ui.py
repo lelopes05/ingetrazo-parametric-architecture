@@ -9,7 +9,7 @@ import uuid
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap, QVector3D
 from PySide6.QtWidgets import (
-    QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel, QMenu,
+    QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel, QMenu, QInputDialog,
     QToolBar, QToolButton, QVBoxLayout, QWidget, QSizeGrip,
 )
 
@@ -39,6 +39,9 @@ from .path_edit import (ArcWallTool, ChangeWallHeightTool, ConstrainedMoveWallTo
                         InsertVertexTool, MoveWallVertexTool, MoveWallStationZTool, LeanWallTopTool, ChangeWholeWallHeightTool)
 from .wall_opening_tool import WallOpeningTool
 from .wall_polygon_tool import WallPolygonTool
+from .opening_controller import all_opening_wires, hit_test
+from .door_window_commands import EditHostedFill, DeleteHostedOpening, _fill_record
+from .door_window_core import edit_from_hotspot, normalize_fill
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
 from .i18n import t, ui_locale
 from .icons import icon as pa_icon, set_symbol_icon
@@ -155,6 +158,8 @@ class WallController(QObject):
         self._path_palette_anchor = None
         self._path_palette_kind = None
         self._active_opening_id = None
+        self._opening_wire_key = None
+        self._opening_wire_data = []
         self._make_panel()
         self._make_actions()
         self._make_path_palette()
@@ -260,6 +265,10 @@ class WallController(QObject):
         self.layer_editor=LayerEditor(self.panel,before_label="Exterior",after_label="Interior");self.layer_editor.changed.connect(self.layers_changed);layout.addWidget(self.layer_editor);self.layer_editor.hide()
 
         self.opening_widget=QWidget(self.panel);oform=QFormLayout(self.opening_widget);oform.setContentsMargins(0,0,0,0);self.opening_fields={}
+        self.opening_selector=QComboBox(self.opening_widget)
+        self.opening_selector.setToolTip("Selecione qualquer abertura desta parede.")
+        self.opening_selector.currentIndexChanged.connect(self._select_opening_from_list)
+        oform.addRow("Vão selecionado",self.opening_selector)
         opening_rows=(("position",t("Posição ao longo da parede"),0.10),("width",t("Largura Livre no menor Vão"),0.10),("sill",t("Peitoril"),0.10),("height",t("Altura da abertura"),0.10))
         for key,label,step in opening_rows:
             f=QDoubleSpinBox();f.setLocale(ui_locale());f.setDecimals(4);f.setRange(0.0,MAX_DIM);f.setSingleStep(step);f.setSuffix(" m");f.setKeyboardTracking(False);f.valueChanged.connect(self.opening_changed);self.opening_fields[key]=f;oform.addRow(label,f)
@@ -362,6 +371,17 @@ class WallController(QObject):
         self.wall_type_menu=QMenu(self.app.window);self.wall_type_menu.addAction(self.simple_wall_action);self.wall_type_menu.addAction(self.composite_wall_action);self.wall_type_menu.addSeparator();self.wall_type_menu.addAction(self.curve_action)
         self.wall_menu_button=QToolButton(self.app.window);self.wall_menu_button.setDefaultAction(self.action);self.wall_menu_button.setMenu(self.wall_type_menu);self.wall_menu_button.setPopupMode(QToolButton.MenuButtonPopup);self.wall_menu_button.setToolTip(t("Parede — use a seta para escolher simples, composta ou curva."))
         self.toolbar.addWidget(self.wall_menu_button)
+        for kind,title in (("door","Porta"),("window","Janela")):
+            menu=QMenu(self.app.window)
+            for anchor,label in (("left","Âncora esquerda"),("center","Âncora central"),
+                                 ("right","Âncora direita")):
+                menu.addAction(label,lambda checked=False,k=kind,a=anchor:self.begin_hosted_fill(k,a))
+            btn=QToolButton(self.app.window)
+            btn.setText(title)
+            btn.setToolTip("Selecione uma parede, escolha a âncora e clique para inserir a esquadria.")
+            btn.setMenu(menu)
+            btn.setPopupMode(QToolButton.InstantPopup)
+            self.toolbar.addWidget(btn)
         self.app.window.addToolBar(Qt.TopToolBarArea, self.toolbar)
         self.fit_toolbar()
         menu = self.app.add_menu(t("Ferramentas arquitetônicas"))
@@ -459,6 +479,8 @@ class WallController(QObject):
             "▣",
             t("Criar abertura retangular hospedada nesta parede."),
             self.begin_wall_opening)
+        self.door_btn = button("D", "Porta paramétrica com vão automático.", lambda:self.begin_hosted_fill("door"))
+        self.window_btn = button("J", "Janela paramétrica com vão automático.", lambda:self.begin_hosted_fill("window"))
         self.polygon_btn = button(
             "⬡",
             "Desenhar abertura livre por vértices na face da parede.",
@@ -699,6 +721,24 @@ class WallController(QObject):
         self.lean_tool.prepare(wall, anchor)
         activate_wall_lean(self.app)
         self.app.viewport.setFocus()
+
+    def begin_hosted_fill(self, kind, anchor="center"):
+        wall,point=self._palette_target()
+        if wall is None:
+            walls=selected_walls(self.app.scene)
+            wall=walls[0] if len(walls)==1 else None
+            if wall is not None:
+                point=path_world(wall)[0]
+        self.hide_path_palette()
+        if wall is None:
+            self.message("Selecione uma parede para inserir a porta ou janela.",error=True)
+            return
+        try:
+            self.opening_tool.prepare(wall,point,kind=kind,fill_anchor=anchor)
+            activate_wall_opening(self.app)
+            self.app.viewport.setFocus()
+        except WallError as exc:
+            self.message(str(exc),error=True)
 
     def begin_wall_opening(self):
         wall, anchor = self._palette_target()
