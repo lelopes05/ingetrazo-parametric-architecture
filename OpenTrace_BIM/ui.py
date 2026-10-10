@@ -840,12 +840,17 @@ class WallController(QObject):
             values = read_wall(self.target)
             opening = next((x for x in values.get("openings", ())
                             if x.get("id") == self._active_opening_id), None)
-            if not opening or opening.get("kind") != "polygon":
+            if not opening:
                 raise WallError("Selecione uma abertura livre para editar.")
+            convert_rect=(opening.get("kind")!="polygon" and
+                          not opening.get("source_id") and not opening.get("fill"))
+            if opening.get("kind")!="polygon" and not convert_rect:
+                raise WallError("A esquadria hospedada deve ser editada por seus parâmetros.")
             origin = QVector3D(anchor) if anchor is not None else path_world(self.target)[0]
             self.polygon_tool.prepare(self.target, origin,
                                       opening_id=self._active_opening_id,
-                                      operation=operation,index=element_index)
+                                      operation=operation,index=element_index,
+                                      convert_rect=convert_rect)
             activate_wall_polygon(self.app)
             self.app.viewport.setFocus()
         except WallError as exc:
@@ -983,9 +988,13 @@ class WallController(QObject):
             wires=self._opening_wires_for(wall)
             if not wires:
                 continue
+            convertible_ids={str(o.get("id")) for o in rec.get("openings",())
+                             if o.get("kind")!="polygon"
+                             and not o.get("source_id") and not o.get("fill")}
             result=hit_test(viewport,wires,float(px),float(py),
                             active_id=self._active_opening_id
-                            if wall is self._active_opening_wall else None)
+                            if wall is self._active_opening_wall else None,
+                            editable_rect_ids=convertible_ids)
             if result is not None:
                 oid,handle=result
                 return (str(wall.uid),oid,handle)
@@ -1029,7 +1038,7 @@ class WallController(QObject):
             is_polygon=False
         from PySide6.QtGui import QCursor
         pos=QCursor.pos()
-        if is_polygon:
+        if is_polygon or (handle and handle.startswith(("vertex-","edge-"))):
             QTimer.singleShot(0,lambda o=oid,h=handle,p=pos:
                               self._show_opening_edit_palette(o,h,p))
         elif handle:
@@ -1186,14 +1195,24 @@ class WallController(QObject):
                     if index<len(lines):
                         a,b=lines[index]
                         anchor=(QVector3D(a)+QVector3D(b))*.5
+            if anchor is None and opening.get("kind")!="polygon" and len(lines)>=12 and handle_id:
+                if handle_id.startswith("vertex-"):
+                    n=int(handle_id.split("-",1)[1])
+                    corners=(lines[0][0],lines[0][1],lines[4][1],lines[4][0])
+                    anchor=QVector3D(corners[n%4])
+                elif handle_id.startswith("edge-"):
+                    n=int(handle_id.split("-",1)[1])
+                    a,b=lines[(0,9,4,8)[n%4]]
+                    anchor=(QVector3D(a)+QVector3D(b))*.5
             if anchor is None and lines:
                 a,b=lines[0]
                 anchor=(QVector3D(a)+QVector3D(b))*.5
             break
         self._opening_edit_anchor=anchor
         polygon=opening.get("kind")=="polygon"
-        vertex=polygon and bool(handle_id and handle_id.startswith("vertex-"))
-        edge=polygon and bool(handle_id and handle_id.startswith("edge-"))
+        editable=polygon or (not opening.get("source_id") and not opening.get("fill"))
+        vertex=editable and bool(handle_id and handle_id.startswith("vertex-"))
+        edge=editable and bool(handle_id and handle_id.startswith("edge-"))
         for op,btn in self.opening_edit_buttons.items():
             btn.setVisible((op in ("move_vertex","delete_vertex") and vertex)
                 or (op in ("insert_vertex","move_edge","stretch_edge") and edge)
@@ -1221,17 +1240,21 @@ class WallController(QObject):
             if operation=="move_opening" and opening.get("kind")!="polygon":
                 self._start_opening_handle_drag(oid,"bottom-center","move")
                 return
-            if opening.get("kind")!="polygon":
-                raise WallError("Edição de vértices e arestas requer vão poligonal.")
+            if opening.get("kind")!="polygon" and (
+                    opening.get("source_id") or opening.get("fill")):
+                raise WallError("Esquadrias hospedadas mantêm edição paramétrica.")
             index=int(handle.split("-",1)[1]) if handle is not None else None
             if operation=="delete_vertex":
                 if index is None or not handle.startswith("vertex-"):
                     raise WallError("Selecione o vértice que deseja excluir.")
-                from .wall_polygon import delete_vertex
+                from .wall_polygon import delete_vertex, rectangle_to_polygon
                 values=read_wall(wall)
                 item=next(x for x in values["openings"] if x["id"]==oid)
-                updated=delete_vertex(item["polygon"],index,values["length"],
+                original=(item["polygon"] if item.get("kind")=="polygon"
+                          else rectangle_to_polygon(item,values["length"]))
+                updated=delete_vertex(original,index,values["length"],
                                       allow_outside=True)
+                item["kind"]="polygon"
                 item["polygon"]=updated
                 item["edges"]=[{"type":"line"} for _ in updated]
                 self.app.viewport.history.execute(EditWall(self.app.scene,wall,values))
