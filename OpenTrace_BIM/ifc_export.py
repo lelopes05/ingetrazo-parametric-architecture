@@ -1103,8 +1103,24 @@ def _opening_properties(rec, item, index):
     return out
 
 
+def _hosted_fill_key(group):
+    """Live door/window identity used to link its body to the wall void."""
+    rec = record_for(group)
+    if not isinstance(rec, dict) or rec.get("kind") not in ("door", "window"):
+        return None
+    params = rec.get("params")
+    params = params if isinstance(params, dict) else {}
+    host = rec.get("host_id") or params.get("host_id")
+    opening = rec.get("opening_id") or params.get("opening_id")
+    source = rec.get("source_id") or params.get("id")
+    if not all((host, opening, source)):
+        return None
+    return (str(host), str(opening), str(source))
+
+
 def _add_opening_relations(step, host_ref, rec, storey_ref, placement_ref, context,
-                           include_psets=True, *, type_cache=None, project_gid=""):
+                           include_psets=True, *, type_cache=None, project_gid="",
+                           host_uid=None, linked_products=None):
     raw = rec.get("openings") if isinstance(rec, dict) else None
     if not isinstance(raw, list): return {"openings": [], "fills": []}
     out, fills = [], []
@@ -1120,6 +1136,20 @@ def _add_opening_relations(step, host_ref, rec, storey_ref, placement_ref, conte
         out.append(opening)
 
         fill = item.get("fill")
+        # A live parametric fill has already been exported with its REAL body
+        # representation. Relate that exact product instead of manufacturing a
+        # second, geometry-less IfcDoor/IfcWindow from the opening metadata.
+        link_key = (str(host_uid), str(item.get("id")), str(item.get("source_id")))
+        actual = (linked_products or {}).get(link_key)
+        if actual is not None:
+            fgid, product, cls = actual
+            declared = fill.get("class") if isinstance(fill, dict) else None
+            if cls not in ("IfcDoor", "IfcWindow") or (declared and declared != cls):
+                raise IfcExportError("Tipo IFC do objeto não corresponde à abertura hospedada.")
+            step.add("IfcRelFillsElement",
+                     f"{_s(new_ifc_guid())},$,$,$,{opening},{product}")
+            fills.append((fgid, product, cls))
+            continue
         if not isinstance(fill, dict):
             # Backwards-compatible shorthand accepted by future door/window tools.
             cls = item.get("fill_class") or item.get("ifc_fill_class")
@@ -1199,6 +1229,10 @@ def export_ifc(app, path, *, data=None):
     groups = [g for g in list(getattr(scene, "groups", ()) or ()) if is_bim_group(g)]
     if not groups:
         raise IfcExportError("O documento não contém elementos OpenTrace BIM para exportar.")
+    # Export physical fills before their walls, allowing a single IFC product
+    # to be reused by IfcRelFillsElement regardless of scene creation order.
+    # Preserve relative ordering for all other objects.
+    groups.sort(key=lambda group: 0 if _hosted_fill_key(group) else 1)
 
     config = copy.deepcopy(data or load_document_data(app))
     project = config.get("project", {})
@@ -1272,6 +1306,7 @@ def export_ifc(app, path, *, data=None):
     by_storey = {name: [] for name in storey_refs}
     exported = []
     product_by_gid = {}
+    linked_products = {}
     opening_count = 0
     representation_counts = {"SweptSolid": 0, "Brep": 0, "Tessellation": 0, "MappedRepresentation": 0}
 
@@ -1304,6 +1339,11 @@ def export_ifc(app, path, *, data=None):
         product = _make_product(step, ifc_class, gid, name, object_type, global_place, shape, predefined, meta)
         exported.append(product)
         product_by_gid[gid] = product
+        fill_key = _hosted_fill_key(group)
+        if fill_key is not None:
+            if fill_key in linked_products:
+                raise IfcExportError("Duas esquadrias estão associadas ao mesmo vão.")
+            linked_products[fill_key] = (gid, product, ifc_class)
         representation_counts[representation_kind] = representation_counts.get(representation_kind, 0) + 1
 
         rec["type_name"] = type_name
@@ -1384,7 +1424,8 @@ def export_ifc(app, path, *, data=None):
         if include_openings:
             ops = _add_opening_relations(step, product, rec, storey_refs.get(storey_name), global_place,
                                          body_context, include_psets, type_cache=type_cache,
-                                         project_gid=project_gid)
+                                         project_gid=project_gid, host_uid=getattr(group, "uid", None),
+                                         linked_products=linked_products)
             opening_count += len(ops.get("openings", ()))
             for fgid, fref, _fcls in ops.get("fills", ()):
                 product_by_gid[fgid] = fref
