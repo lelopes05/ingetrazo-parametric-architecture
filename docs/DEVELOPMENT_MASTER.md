@@ -4,6 +4,12 @@
 
 > Abrir a próxima conversa lendo este arquivo na branch/PR de desenvolvimento mais recente. Validar commits/arquivos reais antes de declarar algo integrado. Atualizar este registro ao fechar cada bloco.
 
+## Ponto de retomada prioritário — 2026-10-10
+
+**Trabalho ativo:** [PR #8](https://github.com/lelopes05/opentrace-bim/pull/8), branch `dev/opening-controller-integration-2026-10-10`, base `dev/wall-openings-2026-10-09` (PR #5). Integra a implementação independente de esquadrias do [PR #7](https://github.com/lelopes05/opentrace-bim/pull/7). PRs #3–#7 seguem abertos e sem merge na `main`. **Release público 0.12.9 e catálogo preservados.**
+
+**Regra atual:** a implementação foi autorizada; evolução/correções devem ficar na branch experimental até prova visual no IngeTrazo e avaliação do usuário. O código possui testes Python/host reais, mas os sintomas observados em renderização **somente com seleção ativa** NÃO podem ser declarados corrigidos sem reprodução visual. Manter a distinção entre teste headless e GUI.
+
 ## Regras permanentes
 
 - Responder às perguntas do usuário ANTES de programar. Ele valida comportamento e interface; revisão de arquitetura e código é responsabilidade técnica do assistente.
@@ -151,3 +157,27 @@
 - **Posicionamento sem efeitos colaterais:** `place_fill_on_wall()` (`1cb0806`) confere o `source_id` do vão hospedado, dimensões, host UID, âncora esquerda/centro/direita e orienta a esquadria pela trajetória da parede em mundo. Retorna o grupo pronto, **sem** mutar a parede ou a cena. A ferramenta UI que chama EditWall + insere este grupo num único Undo/Redo está pendente.
 - **CI real do host:** [run 37981875351](https://github.com/lelopes05/opentrace-bim/actions/runs/37981875351) finalizou `success`: **5 testes de Mesh/Group reais OK**, incluindo colocação de janela em vão de uma parede construída pelo motor atual, bem como geometria 3D fechada de porta e janela. Os testes Python puros da etapa 02 também passaram em [run 37980967165](https://github.com/lelopes05/opentrace-bim/actions/runs/37980967165), **20 tests ... OK**.
 - **Gate para integração 02:** ainda não existe objeto de porta/janela acionável pela paleta ou instalado no IngeTrazo. Antes de mesclar os motores, reconciliar a geometria do vão da branch 01 (#5) com a de esquadrias da branch 02 (#7), comandos históricos atômicos, hotspots reais, GUID estável, IFC sem duplicação de objetos de preenchimento e testes `.igz`. A exportação atual cria um preenchimento sem representação na relação IFC; evitar que objeto 3D e a mesma abertura dupliquem IfcDoor/IfcWindow quando integrar.
+
+## Integração experimental das etapas 01–03 (2026-10-10, PR #8)
+
+### Código integrado gravado no GitHub
+
+- PR #7 conciliado com PR #5: `door_window_core.py`, `door_window_geometry.py`, `door_window_commands.py`, `ifc_export.py`, workflows e testes. Porta/janela são objetos `Group` físicos, separados da parede recortada, com `source_id` e `IfcRelFillsElement` vinculados ao `IfcOpeningElement`; evitar duplicar produtos IFC.
+- `opening_controller.py`: contorno virtual e seis hotspots por retângulo; livre poligonal expõe vértices. Não existe sólido booleano oculto selecionável nem malha auxiliar persistida. Hit test em coordenadas de tela, sem modificar o modelo.
+- `ui.py`: seleção da abertura por contorno ou lista, edição por menu contextual do hotspot; **largura** nos seis pontos, **posição** nos três inferiores, **altura** nos três superiores, operações poligonais preservadas. Paleta radial distingue vão retangular livre, vão de porta sem folha e vão de janela sem esquadria.
+- Ferramentas `Porta` e `Janela` no topo e na paleta radial: seleção da parede, três âncoras (esquerda/centro/direita), prévia e confirmação. Um comando `CreateHostedFill` grava recorte e grupo 3D em um passo de histórico. Porta usa `sill=0` por padrão. Paleta exibe opção de trocar âncora (sem deslocar fisicamente) e botão único de inverter giro, ambos undoáveis.
+- `DeleteHostedOpening` remove recorte e esquadria em uma transação histórica, restaurando ambos no Undo. `sync_hosted_fill_placements` recalcula a posição após mudança do hospedeiro/nativa e no Undo, sem substituir o `Group` ou sua identidade.
+- IDs GUID IFC permanentes criados para novos vãos livres retangulares e poligonais (`wall_opening_tool.py` e `wall_polygon_tool.py`).
+- `model.py`: interseção da posição com trajetória via índice `bisect` (antes varredura completa), solução exata de vão em parede reta e custo reduzido de solver curvo; indexação por coordenada de vértice em `_stitch_opening_mesh` para reduzir varredura O(arestas × vértices) ao costurar malhas curvas com camadas.
+- `commands.py`: edições somente no recorte preservam os caps/estado derivado existentes quando não há interseções/máscaras complexas, evitando segunda geração completa. `EditHostedFill` não regenera a parede para giro/âncora sem alteração do vão.
+- `tests_host/test_opening_integration_host.py`: novo teste sobre `Scene`, malha e matriz reais: dois vãos independentes, seis grips, porta no piso, exclusão/Undo, acompanhamento de deslocamento da parede e controlador em arco.
+
+### Validação automatizada e limites
+
+- Workflow integrado `.github/workflows/test-integrated-openings.yml`: `compileall`, contratos puros e `unittest discover -s tests_host` sobre checkout real do IngeTrazo + PySide6 offscreen. Só se todos passarem publica artefato de instalação **experimental** na execução GitHub Actions, sem release/catálogo.
+- Gate headless integrado **confirmado** em [run 38020249245](https://github.com/lelopes05/opentrace-bim/actions/runs/38020249245) no SHA `bd8ebdb5`. A otimização de costura em `18ed278c` é posterior; conferir gate do HEAD antes de chamar qualquer pacote de validado.
+- **Ainda pendente:** teste de interface/raster com seleção ativa para isolar o defeito de arestas/VBO/OBB (não houve IngeTrazo visual nesta conversa); testar UX real de todos os hotspots e abas; benchmark de curvas longas; Undo/Redo e `.igz` depois de redimensionar paredes/junções com esquadrias; visualização de múltiplas camadas, perfis inclinados, aberturas concavas; visualização e interpretação IFC externa em Archicad/FreeCAD/Bonsai; regressões após importações reais. Nada disso pode ser anunciado como concluído.
+- O motor ainda limita arestas de abertura poligonal a segmentos retos; curvas/chanfros/fillets do contorno livre exigem etapa própria. A parede permanece a autoridade física do recorte; booleanas 3D destrutivas NÃO foram adotadas.
+- Nenhuma alteração na `main`, no release público 0.12.9 ou no catálogo. Não fazer merge ou publicar sem validação e autorização.
+
+**Retomada recomendada:** conferir o gate mais recente do [PR #8](https://github.com/lelopes05/opentrace-bim/pull/8) e baixar o ZIP **experimental** do workflow integrado aprovado; validar a seleção e redimensionamento na viewport real, corrigir qualquer artefato de seleção com logs/imagens de reprodução; depois fechar a interoperabilidade IFC e consolidar PRs na ordem da integração aprovada.
