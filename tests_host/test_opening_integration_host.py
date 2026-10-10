@@ -308,6 +308,75 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         for key in ("position","sill","height"):
             self.assertEqual(updated[1][key],original["openings"][1][key])
 
+    def test_wall_recedes_through_opening_and_reexpands_without_losing_params(self):
+        from OpenTrace_BIM.model import wall_opening_intervals, path_world
+        opening={"id":"recede","position":2.5,"width":1.0,"sill":.8,
+                 "height":1.2,"source_id":None}
+        scene,wall=scene_wall([opening])
+        original=read_wall(wall)["openings"][0].copy()
+        guid=original.get("ifc_global_id")
+        for length, expected in (
+            (4.0,(2.0,3.0)),(3.0,(2.0,3.0)),
+            (2.5,(2.0,2.5)),(2.1,(2.0,2.1)),
+            (2.0,None),(1.5,None),(5.0,(2.0,3.0))
+        ):
+            data=read_wall(wall)
+            data["length"]=length
+            cmd=EditWall(scene,wall,data)
+            cmd.do(scene)
+            self.assertAlmostEqual(read_wall(wall)["length"],length)
+            record=read_wall(wall)["openings"][0]
+            self.assertEqual(record["id"],"recede")
+            self.assertAlmostEqual(record["position"],2.5)
+            self.assertAlmostEqual(record["width"],1.0)
+            self.assertEqual(record.get("ifc_global_id"),guid)
+            intervals=wall_opening_intervals(read_wall(wall),path_world(wall))
+            if expected is None:
+                self.assertEqual(intervals,[])
+            else:
+                self.assertEqual(len(intervals),1)
+                self.assertAlmostEqual(intervals[0]["s0"],expected[0])
+                self.assertAlmostEqual(intervals[0]["s1"],expected[1])
+            for child in wall.children:
+                self.assertFalse([edge for edge in child.mesh.edges
+                                  if len(edge.faces)!=2],
+                                 f"nonmanifold receding to {length} m")
+
+    def test_receded_hosted_door_keeps_object_uid_and_source_identity(self):
+        scene,wall=scene_wall()
+        spec={"id":"recede-door","host_id":wall.uid,"opening_id":"door-void",
+              "kind":"door","width":.9,"height":2.1,
+              "position":2.5,"sill":0.0,"anchor":"center"}
+        cmd=CreateHostedFill(scene,wall,spec)
+        cmd.do(scene)
+        door=cmd.group
+        before_uid=door.uid
+        for length in (3.0,2.6,2.0,5.0):
+            values=read_wall(wall)
+            values["length"]=length
+            EditWall(scene,wall,values).do(scene)
+            self.assertEqual(door.uid,before_uid)
+            self.assertIn(door,scene.groups)
+            void=read_wall(wall)["openings"][0]
+            self.assertEqual(void["id"],"door-void")
+            self.assertEqual(void["source_id"],"recede-door")
+
+    def test_pick_inside_free_opening_but_not_a_filled_leaf(self):
+        from OpenTrace_BIM.ui import WallController
+        wall_data=[
+            {"id":"free","position":1.2,"width":.8,"sill":.6,"height":1.2},
+            {"id":"door","position":3.5,"width":.8,"sill":.6,"height":1.2,
+             "source_id":"some-fill"}]
+        scene,wall=scene_wall(wall_data)
+        vp=FakeViewport()
+        vp.scene=scene
+        ctl=SimpleNamespace(_active_opening_id=None,_active_opening_wall=None,
+                            _opening_wires_for=lambda w:all_opening_wires(w,read_wall(w)))
+        pick_free=WallController._pick_virtual_opening(ctl,vp,120,-120)
+        self.assertEqual(pick_free[1],"free")
+        pick_door=WallController._pick_virtual_opening(ctl,vp,350,-120)
+        self.assertIsNone(pick_door)
+
     def test_curved_host_outline_keeps_mesh_independent(self):
         values=dict(DEFAULTS,length=4.0,openings=[
             {"id":"curved-cut","position":2.0,"width":.8,
