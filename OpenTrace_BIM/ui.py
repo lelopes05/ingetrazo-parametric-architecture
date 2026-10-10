@@ -40,6 +40,7 @@ from .path_edit import (ArcWallTool, ChangeWallHeightTool, ConstrainedMoveWallTo
 from .wall_opening_tool import WallOpeningTool
 from .wall_polygon_tool import WallPolygonTool
 from .opening_controller import all_opening_wires, hit_test
+from .overlay_safety import visible_pixel, visible_segment
 from .door_window_commands import EditHostedFill, DeleteHostedOpening, reverse_hosted_door, sync_hosted_fill_placements, _fill_record
 from .door_window_core import edit_from_hotspot, normalize_fill, reanchor_fill
 from .widgets import FlexibleDoubleSpinBox as QDoubleSpinBox
@@ -1219,6 +1220,23 @@ class WallController(QObject):
         return super().eventFilter(obj, event)
 
     def draw_reference_overlay(self, viewport, painter):
+        # Qt's QPainter can corrupt a whole frame when a wall endpoint
+        # projects millions of pixels away (camera near-plane crossing).
+        # Clip ALL our world-space overlay segments before passing to Qt.
+        def line(a,b):
+            clipped=visible_segment(viewport,a,b)
+            if clipped is not None:
+                (x0,y0),(x1,y1)=clipped
+                painter.drawLine(QPointF(x0,y0),QPointF(x1,y1))
+
+        def pixel_line(a,b):
+            clip=getattr(viewport,"_clip_pixel_line",None)
+            clipped=clip(a,b,margin=32.0) if callable(clip) else None
+            if clipped is not None:
+                painter.drawLine(QPointF(*clipped[0]),QPointF(*clipped[1]))
+
+        def dot(p):
+            return visible_pixel(viewport,p)
         # Centre-radius construction guide for the curved-wall centre method.
         # It is intentionally independent of selection because no wall exists yet.
         if (viewport.active_tool is self.curve_create_tool
@@ -1234,13 +1252,12 @@ class WallController(QObject):
                     spec = None
                 if spec is not None:
                     target = QVector3D(spec[1])
-            pc = viewport._world_to_pixel(centre)
-            pt = viewport._world_to_pixel(target)
-            if pc is not None and pt is not None:
-                painter.setPen(QPen(QColor("#e64646"), 1.8, Qt.SolidLine))
-                painter.drawLine(QPointF(pc[0], pc[1]), QPointF(pt[0], pt[1]))
+            pc=dot(centre)
+            painter.setPen(QPen(QColor("#e64646"), 1.8, Qt.SolidLine))
+            line(centre,target)
+            if pc is not None:
                 painter.setBrush(QColor("#e64646"))
-                painter.drawEllipse(QRectF(pc[0] - 3.0, pc[1] - 3.0, 6.0, 6.0))
+                painter.drawEllipse(QRectF(pc[0]-3,pc[1]-3,6,6))
 
         # When an arc endpoint is being continued along its existing circle,
         # bring the radius construction line back: centre -> active endpoint.
@@ -1251,15 +1268,19 @@ class WallController(QObject):
                 and self.move_vertex_continue_tool.hover is not None):
             centre = QVector3D(self.move_vertex_continue_tool.arc_center)
             target = QVector3D(self.move_vertex_continue_tool.hover)
-            pc = viewport._world_to_pixel(centre)
-            pt = viewport._world_to_pixel(target)
-            if pc is not None and pt is not None:
-                painter.setPen(QPen(QColor("#e64646"), 1.8, Qt.SolidLine))
-                painter.drawLine(QPointF(pc[0], pc[1]), QPointF(pt[0], pt[1]))
+            pc=dot(centre)
+            painter.setPen(QPen(QColor("#e64646"), 1.8, Qt.SolidLine))
+            line(centre,target)
+            if pc is not None:
                 painter.setBrush(QColor("#e64646"))
-                painter.drawEllipse(QRectF(pc[0] - 3.0, pc[1] - 3.0, 6.0, 6.0))
+                painter.drawEllipse(QRectF(pc[0]-3,pc[1]-3,6,6))
 
         walls = selected_walls(self.app.scene)
+        # Opening selected natively: no scene Group needs to be selected.
+        if (getattr(viewport,"extension_pick",None) is not None
+                and self._active_opening_wall in self.app.scene.groups
+                and self._active_opening_wall not in walls):
+            walls=[self._active_opening_wall]
         if not walls:
             return
         pen = QPen(QColor("#1f83d6"), 2.0, Qt.DashLine)
@@ -1271,13 +1292,12 @@ class WallController(QObject):
                 pts = base_path_world(wall)
             except WallError:
                 continue
-            pixels = [viewport._world_to_pixel(p) for p in pts]
+            pixels = [dot(p) for p in pts]
             painter.setPen(pen)
-            for a, b in zip(pixels, pixels[1:]):
-                if a is not None and b is not None:
-                    painter.drawLine(QPointF(a[0], a[1]), QPointF(b[0], b[1]))
+            for a,b in zip(pts,pts[1:]):
+                line(a,b)
             try:
-                vertex_pixels = [viewport._world_to_pixel(p) for p in base_reference_vertices_world(wall)]
+                vertex_pixels = [dot(p) for p in base_reference_vertices_world(wall)]
             except WallError:
                 vertex_pixels = pixels
             painter.setPen(vertex_pen)
@@ -1291,13 +1311,11 @@ class WallController(QObject):
             # there the base path vertex must remain the unambiguous control.
             try:
                 top_vertices = top_reference_vertices_world(wall)
-                top_pixels = [viewport._world_to_pixel(p) for p in top_vertices]
+                top_pixels = [dot(p) for p in top_vertices]
                 top_curve = top_path_world(wall)
-                top_curve_pixels = [viewport._world_to_pixel(p) for p in top_curve]
                 painter.setPen(QPen(QColor("#f0a33b"), 1.4, Qt.DashLine))
-                for a,b in zip(top_curve_pixels, top_curve_pixels[1:]):
-                    if a is not None and b is not None:
-                        painter.drawLine(QPointF(a[0],a[1]),QPointF(b[0],b[1]))
+                for a,b in zip(top_curve,top_curve[1:]):
+                    line(a,b)
             except (WallError, KeyError, TypeError):
                 top_pixels = []
             painter.setPen(height_pen)
@@ -1311,7 +1329,7 @@ class WallController(QObject):
                     if separation < 7.0:
                         continue
                 painter.drawEllipse(QRectF(pt[0] - 4.0, pt[1] - 4.0, 8.0, 8.0))
-                painter.drawLine(QPointF(pt[0] - 5.5, pt[1]), QPointF(pt[0] + 5.5, pt[1]))
+                pixel_line((pt[0]-5.5,pt[1]),(pt[0]+5.5,pt[1]))
 
             # Virtual controllers are overlays, never editable hidden solids.
             if wall is self.target:
@@ -1321,14 +1339,12 @@ class WallController(QObject):
                                         2.0 if active else 1.0,
                                         Qt.SolidLine if active else Qt.DashLine))
                     for a,b in segments:
-                        pa,pb=viewport._world_to_pixel(a),viewport._world_to_pixel(b)
-                        if pa is not None and pb is not None:
-                            painter.drawLine(QPointF(pa[0],pa[1]),QPointF(pb[0],pb[1]))
+                        line(a,b)
                     if active:
                         painter.setPen(QPen(QColor("#e78b24"),1.5))
                         painter.setBrush(QColor("white"))
                         for handle_id,p in grips:
-                            px=viewport._world_to_pixel(p)
+                            px=dot(p)
                             if px is not None:
                                 painter.drawRect(QRectF(px[0]-4,px[1]-4,8,8))
 
@@ -1338,13 +1354,13 @@ class WallController(QObject):
             except WallError:
                 centre = None
             if centre is not None:
-                cp = viewport._world_to_pixel(centre)
+                cp = dot(centre)
                 if cp is not None:
                     painter.setPen(center_pen)
                     painter.setBrush(QColor("white"))
                     painter.drawEllipse(QRectF(cp[0] - 4.0, cp[1] - 4.0, 8.0, 8.0))
-                    painter.drawLine(QPointF(cp[0] - 6.0, cp[1]), QPointF(cp[0] + 6.0, cp[1]))
-                    painter.drawLine(QPointF(cp[0], cp[1] - 6.0), QPointF(cp[0], cp[1] + 6.0))
+                    pixel_line((cp[0]-6,cp[1]),(cp[0]+6,cp[1]))
+                    pixel_line((cp[0],cp[1]-6),(cp[0],cp[1]+6))
 
     def context_menu(self, menu, selection):
         walls = selected_walls(self.app.scene)
