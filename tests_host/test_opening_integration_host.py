@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Cross-stage opening, fill and virtual-controller regression on real host."""
 import unittest
+from types import SimpleNamespace
 
 from PySide6.QtGui import QVector3D
 from core.scene import Scene
@@ -29,6 +30,40 @@ def scene_wall(openings=(), length=5.0):
 
 
 class IntegratedOpeningRuntimeTests(unittest.TestCase):
+    def test_native_opening_selection_without_selected_wall(self):
+        from OpenTrace_BIM.ui import WallController
+        scene,wall=scene_wall([{"id":"pick-without-wall",
+             "kind":"rect","position":2.5,"width":1.0,
+             "sill":0.0,"height":2.1}])
+        self.assertFalse(scene.selection)
+        vp=FakeViewport()
+        vp.scene=scene
+        pick_wires=lambda target:all_opening_wires(target,read_wall(target))
+        ctrl=SimpleNamespace(_active_opening_id=None,_active_opening_wall=None,
+                             _opening_wires_for=pick_wires)
+        selection=WallController._pick_virtual_opening(ctrl,vp,200,-210)
+        self.assertIsNotNone(selection)
+        self.assertEqual(selection[0],wall.uid)
+        self.assertEqual(selection[1],"pick-without-wall")
+        self.assertIsNone(selection[2])
+        self.assertIsNone(WallController._pick_virtual_opening(ctrl,vp,-1000,-1000))
+
+    def test_native_pick_selection_without_mutating_wall_geometry(self):
+        from OpenTrace_BIM.ui import WallController
+        scene,wall=scene_wall([{"id":"pick-callback",
+            "kind":"rect","position":2.5,"width":1.0,
+            "sill":0,"height":2.1}])
+        body=wall.children[0]
+        changes=[]
+        ctrl=SimpleNamespace(app=SimpleNamespace(scene=scene),
+             _active_opening_id=None,_active_opening_wall=None,
+             _state_key=None,schedule_refresh=lambda:changes.append("refresh"))
+        WallController._select_virtual_opening(ctrl,(wall.uid,"pick-callback",None))
+        self.assertIs(ctrl._active_opening_wall,wall)
+        self.assertEqual(ctrl._active_opening_id,"pick-callback")
+        self.assertIs(wall.children[0],body)
+        self.assertEqual(changes,["refresh"])
+
     def test_independent_virtual_controller_and_six_handles(self):
         op={"id":"free-cut","kind":"rect","position":2.5,
             "width":1.0,"sill":0.0,"height":2.1}
