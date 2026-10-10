@@ -135,12 +135,12 @@ def _inside_loop(x, y, loop):
     return inside
 
 
-def _contains_visible_face(viewport, lines, x, y):
+def _contains_visible_face(viewport, lines, x, y, *, polygon=False):
     """A click IN an empty opening is a valid pick, not only its perimeter."""
     if len(lines)<9 or len(lines)%3:
         return False
     n=len(lines)//3
-    if n==4:
+    if n==4 and not polygon:
         # Rectangles use bottom/top thickness loops: reconstruct the
         # projected near and far wall faces rather than those thin quads.
         faces=(
@@ -162,32 +162,40 @@ def _contains_visible_face(viewport, lines, x, y):
 
 def hit_test(viewport, wires, x, y, *, active_id=None, threshold=9.0,
              allow_interior=False):
-    """Pick the outline/hotspots and optionally the empty visible hole.
+    """Return (opening_id, logical handle) as in the slab reference editor.
 
-    Interior selection is restricted by the caller to EMPTY openings so a
-    real Door/Window Group can still be selected by clicking its leaf/glass.
+    Polygon vertices outrank perimeter edges; line indices map to stable
+    logical edge indices on either wall face. A rectangular grip remains
+    distinct from its side/mesh edges. Interior returns the opening itself.
     """
-    best=None
+    vertex_best=None
+    edge_best=None
     for opening_id,lines,grips in wires:
-        if opening_id==active_id:
+        polygon=bool(grips and grips[0][0].startswith("vertex-"))
+        if polygon or opening_id==active_id:
             for handle_id,p in grips:
                 q=viewport._world_to_pixel(p)
-                if q is None:
-                    continue
-                d=((x-q[0])**2+(y-q[1])**2)**0.5
-                if d<=threshold and (best is None or d<best[0]):
-                    best=(d,opening_id,handle_id)
-        for a,b in lines:
+                if q is None:continue
+                d=((x-q[0])**2+(y-q[1])**2)**.5
+                if d<=threshold and (vertex_best is None or d<vertex_best[0]):
+                    vertex_best=(d,opening_id,handle_id)
+        # Polygon front/back edges map to stable logical edges, even when
+        # the rendered outline contains extra perpendicular depth segments.
+        n=len(grips) if polygon else 0
+        for i,(a,b) in enumerate(lines):
             pa,pb=viewport._world_to_pixel(a),viewport._world_to_pixel(b)
-            if pa is None or pb is None:
-                continue
+            if pa is None or pb is None:continue
             d=_dist_segment(x,y,pa,pb)
-            if d<=threshold and (best is None or d<best[0]):
-                best=(d,opening_id,None)
-    if best is not None:
-        return best[1],best[2]
+            if d<=threshold and (edge_best is None or d<edge_best[0]):
+                handle=f"edge-{i%n}" if polygon and i<2*n else None
+                edge_best=(d,opening_id,handle)
+    if vertex_best is not None:
+        return vertex_best[1],vertex_best[2]
+    if edge_best is not None:
+        return edge_best[1],edge_best[2]
     if allow_interior:
-        for opening_id,lines,_grips in wires:
-            if _contains_visible_face(viewport,lines,x,y):
+        for opening_id,lines,grips in wires:
+            polygon=bool(grips and grips[0][0].startswith("vertex-"))
+            if _contains_visible_face(viewport,lines,x,y,polygon=polygon):
                 return opening_id,None
     return None
