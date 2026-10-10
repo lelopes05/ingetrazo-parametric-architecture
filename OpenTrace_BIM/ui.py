@@ -1013,7 +1013,13 @@ class WallController(QObject):
 
     def _select_virtual_opening(self, identity):
         if identity is None:
-            self._active_opening_wall=None
+            # The host invalidates native extension_pick whenever EditWall
+            # changes scene.version. That does NOT delete/deselect the
+            # parametric opening while its owning wall remains selected.
+            wall=self._active_opening_wall
+            if wall not in getattr(self.app.scene,"selection",()):
+                self._active_opening_wall=None
+                self._active_opening_id=None
             self._state_key=None
             self.schedule_refresh()
             return
@@ -1542,12 +1548,22 @@ class WallController(QObject):
                         wall_uid,oid,handle=virtual
                         # First click selects the void natively. Once selected,
                         # the second press can pull one of its six grips.
-                        if (handle and handle.startswith(("top-","bottom-"))
-                                and oid==self._active_opening_id
+                        if (oid==self._active_opening_id
                                 and self._active_opening_wall is walls[0]):
-                            self._pointer_opening_grip=(oid,handle,walls[0],
-                                                       event.position())
-                            self._pointer_opening_drag=False
+                            if handle and handle.startswith(("top-","bottom-")):
+                                self._pointer_opening_grip=(oid,handle,walls[0],
+                                                           event.position())
+                                self._pointer_opening_drag=False
+                                return True
+                            # A first edit/Undo rebuilds the host mesh and
+                            # invalidates its native extension pick version.
+                            # Like the slab editor, re-open the active
+                            # opening context directly rather than requiring
+                            # the user to re-select the wall or hole.
+                            global_point=event.globalPosition().toPoint()
+                            QTimer.singleShot(0,
+                                lambda o=oid,h=handle,p=global_point:
+                                    self._show_opening_edit_palette(o,h,p))
                             return True
                         return False
                     hit = self._reference_context(
