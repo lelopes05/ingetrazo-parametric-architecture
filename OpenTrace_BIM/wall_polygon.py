@@ -35,8 +35,13 @@ def _intersect(a, b, c, d):
     return False
 
 
-def normalize_polygon(raw, length, margin=0.02):
-    """Validate a simple non-degenerate opening inside the wall's end margins."""
+def normalize_polygon(raw, length, margin=0.02, *, allow_outside=False):
+    """Validate an authored polygon, without silently resizing its vertices.
+
+    The creation tool still requires points inside the wall. Existing cutters
+    may extend beyond a host after the user recedes that host: these continue
+    to be valid authored geometry and are clipped only during meshing.
+    """
     if not isinstance(raw, (tuple, list)) or len(raw) < 3:
         raise ValueError("A abertura precisa de ao menos três vértices.")
     if not math.isfinite(float(length)) or length <= 2*margin:
@@ -51,7 +56,7 @@ def normalize_polygon(raw, length, margin=0.02):
             raise ValueError("Coordenadas inválidas na abertura.") from exc
         if not math.isfinite(x) or not math.isfinite(z):
             raise ValueError("Coordenadas não finitas na abertura.")
-        if x <= margin or x >= length-margin:
+        if not allow_outside and (x <= margin or x >= length-margin):
             raise ValueError("A abertura deve respeitar os extremos da parede.")
         if z < 0:
             raise ValueError("A altura da abertura não pode ficar abaixo da base.")
@@ -79,6 +84,47 @@ def normalize_polygon(raw, length, margin=0.02):
             if _intersect(pts[i], pts[(i+1)%n], pts[j], pts[(j+1)%n]):
                 raise ValueError("A abertura não pode cruzar suas próprias arestas.")
     return [[x, z] for x, z in pts]
+
+
+
+def clip_polygon_stations(points, length):
+    """Effective intersection of a persistent 2D cutter and [0, host_length].
+
+    Clipped boundary edges are VIRTUAL, not reveal faces: wall endpoint caps
+    remain open where the cutter intersects them. The authored points never
+    change, and a fully external opening returns no physical polygon.
+    """
+    polygon=[list(map(float,pt)) for pt in points]
+    for bound,keep_above in ((0.0,True),(float(length),False)):
+        if not polygon:
+            break
+        result=[]
+        previous=polygon[-1]
+        for current in polygon:
+            inside_prev=(previous[0]>=bound-EPS if keep_above
+                         else previous[0]<=bound+EPS)
+            inside_cur=(current[0]>=bound-EPS if keep_above
+                        else current[0]<=bound+EPS)
+            if inside_prev != inside_cur:
+                dx=current[0]-previous[0]
+                if abs(dx)>EPS:
+                    t=(bound-previous[0])/dx
+                    result.append([bound,previous[1]+t*(current[1]-previous[1])])
+            if inside_cur:
+                result.append(list(current))
+            previous=current
+        polygon=[]
+        for point in result:
+            if not polygon or math.dist(polygon[-1],point)>EPS:
+                polygon.append(point)
+        if len(polygon)>1 and math.dist(polygon[0],polygon[-1])<=EPS:
+            polygon.pop()
+    if len(polygon)<3:
+        return []
+    area=sum(polygon[i][0]*polygon[(i+1)%len(polygon)][1]-
+             polygon[(i+1)%len(polygon)][0]*polygon[i][1]
+             for i in range(len(polygon)))*.5
+    return polygon if abs(area)>EPS else []
 
 
 def edge_height(points, index, station):
