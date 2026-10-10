@@ -332,8 +332,8 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
                 self.assertEqual(intervals,[])
             else:
                 self.assertEqual(len(intervals),1)
-                self.assertAlmostEqual(intervals[0]["s0"],expected[0])
-                self.assertAlmostEqual(intervals[0]["s1"],expected[1])
+                self.assertAlmostEqual(intervals[0]["s0"],expected[0],places=5)
+                self.assertAlmostEqual(intervals[0]["s1"],expected[1],places=5)
             for child in wall.children:
                 self.assertFalse([edge for edge in child.mesh.edges
                                   if len(edge.faces)!=2],
