@@ -782,6 +782,17 @@ class WallController(QObject):
             self._active_opening_id=None;self.opening_widget.hide();return
         item=next((x for x in ops if x.get("id")==self._active_opening_id),ops[0]);self._active_opening_id=item.get("id")
         self.opening_widget.show();blocked=[]
+        selector_block=self.opening_selector.blockSignals(True)
+        try:
+            self.opening_selector.clear()
+            for i,op in enumerate(ops):
+                kind=("Vão livre" if op.get("kind")=="polygon" else
+                      "Porta" if (op.get("fill") or {}).get("class")=="IfcDoor" else
+                      "Janela" if (op.get("fill") or {}).get("class")=="IfcWindow" else "Vão")
+                self.opening_selector.addItem(f"{i+1} · {kind}",op.get("id"))
+            self.opening_selector.setCurrentIndex(self.opening_selector.findData(self._active_opening_id))
+        finally:
+            self.opening_selector.blockSignals(selector_block)
         polygon = item.get("kind") == "polygon"
         for f in self.opening_fields.values():
             f.setVisible(not polygon)
@@ -790,12 +801,42 @@ class WallController(QObject):
                 label.setVisible(not polygon)
         self.polygon_label.setVisible(polygon)
         self.polygon_tools.setVisible(polygon)
-        self.opening_fill.setEnabled(not polygon)
+        self.opening_fill.setEnabled(not polygon and self._find_linked_fill(item) is None)
         try:
             for key,f in self.opening_fields.items():blocked.append((f,f.blockSignals(True)));f.setValue(float(item.get(key,0.0)))
             oldb=self.opening_fill.blockSignals(True);fill=item.get("fill") if isinstance(item.get("fill"),dict) else {};cls=fill.get("class") or item.get("fill_class") or item.get("ifc_fill_class");idx=self.opening_fill.findData(cls);self.opening_fill.setCurrentIndex(idx if idx>=0 else 0);self.opening_fill.blockSignals(oldb)
         finally:
             for f,b in blocked:f.blockSignals(b)
+
+    def _find_linked_fill(self, opening):
+        if self.target is None or not opening.get("source_id"):
+            return None
+        for group in getattr(self.app.scene, "groups", ()):
+            rec=_fill_record(group)
+            if (rec and rec.get("host_id")==getattr(self.target,"uid",None)
+                    and rec.get("opening_id")==opening.get("id")
+                    and rec.get("source_id")==opening.get("source_id")):
+                return group
+        return None
+
+    def _select_opening_from_list(self,*_):
+        if self._loading or self.target is None:
+            return
+        oid=self.opening_selector.currentData()
+        if oid:
+            self._active_opening_id=oid
+            self._load_opening_fields(read_wall(self.target).get("openings",[]))
+            self.app.viewport.update()
+
+    def _opening_wires_for(self,wall):
+        key=(id(self.app.scene),self.app.scene.version,id(wall))
+        if self._opening_wire_key!=key:
+            try:
+                self._opening_wire_data=all_opening_wires(wall,read_wall(wall))
+            except (WallError,ValueError,TypeError):
+                self._opening_wire_data=[]
+            self._opening_wire_key=key
+        return self._opening_wire_data
 
     def opening_changed(self,*_):
         if self._loading or self.target is None or not self._active_opening_id:return
@@ -805,6 +846,21 @@ class WallController(QObject):
             if item.get("kind") == "polygon":
                 return  # Free cuts are edited by polygon vertices, not rectangular controls.
             for key,f in self.opening_fields.items():f.interpretText();item[key]=float(f.value())
+            linked=self._find_linked_fill(item)
+            if linked is not None:
+                old=normalize_fill(_fill_record(linked)["params"])
+                new_position=old["position"]+item["position"]-float(
+                    next(o for o in read_wall(self.target)["openings"]
+                         if o["id"]==item["id"])["position"])
+                changes={"width":item["width"],"height":item["height"],
+                         "sill":item["sill"],"position":new_position}
+                self.app.viewport.history.execute(
+                    EditHostedFill(self.app.scene,self.target,linked,changes))
+                if self.app.viewport.history.last_error:
+                    raise WallError(self.app.viewport.history.last_error)
+                self.app.viewport.notify_scene_changed();self._state_key=None
+                self.schedule_refresh()
+                return
             cls=self.opening_fill.currentData()
             if cls:
                 oldfill=item.get("fill") if isinstance(item.get("fill"),dict) else {};fill=copy.deepcopy(oldfill);fill["class"]=str(cls);fill.setdefault("name","Porta" if cls=="IfcDoor" else "Janela");fill.setdefault("predefined_type","DOOR" if cls=="IfcDoor" else "WINDOW");item["fill"]=fill
@@ -817,8 +873,15 @@ class WallController(QObject):
     def delete_wall_opening(self):
         if self.target is None or not self._active_opening_id:return
         try:
-            vals=read_wall(self.target);vals["openings"]=[x for x in vals.get("openings",[]) if x.get("id")!=self._active_opening_id];self._active_opening_id=None
-            self.app.viewport.history.execute(EditWall(self.app.scene,self.target,vals))
+            vals=read_wall(self.target)
+            target_id=self._active_opening_id
+            item=next((x for x in vals["openings"] if x.get("id")==target_id),None)
+            if item is None:return
+            linked=self._find_linked_fill(item)
+            vals["openings"]=[x for x in vals["openings"] if x.get("id")!=target_id]
+            self._active_opening_id=None
+            cmd=DeleteHostedOpening(self.app.scene,self.target,target_id) if linked else EditWall(self.app.scene,self.target,vals)
+            self.app.viewport.history.execute(cmd)
             if self.app.viewport.history.last_error:raise WallError(self.app.viewport.history.last_error)
             self.app.viewport.notify_scene_changed();self._state_key=None;self.refresh();self.message("Abertura excluída.")
         except WallError as exc:self.message(str(exc),error=True)
