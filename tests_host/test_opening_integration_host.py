@@ -305,6 +305,49 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         for key in ("position","sill","height"):
             self.assertEqual(updated[1][key],original["openings"][1][key])
 
+    def test_polygon_opening_recedes_through_host_and_restores(self):
+        from OpenTrace_BIM.model import path_world
+        opening={"id":"poly-recede","kind":"polygon",
+                 "polygon":[[2.0,.7],[3.0,.7],[3.0,1.9],[2.0,1.9]],
+                 "ifc_global_id":"polygon-persistent-guid"}
+        scene,wall=scene_wall([opening])
+        authored=read_wall(wall)["openings"][0]["polygon"]
+        for length, span in ((4.0,(2.0,3.0)),(3.0,(2.0,3.0)),
+                             (2.5,(2.0,2.5)),(2.1,(2.0,2.1)),
+                             (2.0,None),(1.5,None),(5.0,(2.0,3.0))):
+            vals=read_wall(wall)
+            vals["length"]=length
+            EditWall(scene,wall,vals).do(scene)
+            rec=read_wall(wall)["openings"][0]
+            self.assertEqual(rec["polygon"],authored)
+            self.assertEqual(rec["ifc_global_id"],"polygon-persistent-guid")
+            iv=wall_opening_intervals(read_wall(wall),path_world(wall))
+            if span is None:
+                self.assertEqual(iv,[])
+            else:
+                self.assertEqual(len(iv),1)
+                self.assertAlmostEqual(iv[0]["s0"],span[0],places=5)
+                self.assertAlmostEqual(iv[0]["s1"],span[1],places=5)
+            for child in wall.children:
+                open_edges=[e for e in child.mesh.edges if len(e.faces)!=2]
+                self.assertFalse(open_edges,f"Polygon {length} m produced open edges: {open_edges[:3]}")
+
+    def test_slanted_polygon_cut_preserves_identity_after_trim(self):
+        from OpenTrace_BIM.model import path_world
+        opening={"id":"poly-slope","kind":"polygon",
+                 "polygon":[[1.8,.5],[3.0,.6],[2.8,2.0],[1.9,1.8]]}
+        scene,wall=scene_wall([opening])
+        before=read_wall(wall)["openings"][0]["polygon"]
+        vals=read_wall(wall)
+        vals["length"]=2.4
+        EditWall(scene,wall,vals).do(scene)
+        self.assertEqual(read_wall(wall)["openings"][0]["polygon"],before)
+        iv=wall_opening_intervals(read_wall(wall),path_world(wall))
+        self.assertEqual(len(iv),1)
+        self.assertTrue(iv[0]["cut_clipped"])
+        for child in wall.children:
+            self.assertFalse([e for e in child.mesh.edges if len(e.faces)!=2])
+
     def test_virtual_controller_persists_outside_receded_wall(self):
         scene,wall=scene_wall([{
             "id":"ghost-cut","position":2.5,"width":1.0,"sill":.8,
