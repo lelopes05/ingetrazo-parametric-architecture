@@ -121,6 +121,16 @@ def selected_walls(scene):
         parent = getattr(item, "owner", None) or item
         if parent in scene.groups and wall_record(parent) is not None and parent not in found:
             found.append(parent)
+            continue
+        # Selecting the independent leaf/frame also exposes its host opening
+        # controls. The scene selection itself still belongs to the fill.
+        rec=_fill_record(parent)
+        if rec:
+            wall=next((w for w in scene.groups
+                       if getattr(w,"uid",None)==rec.get("host_id")
+                       and wall_record(w) is not None),None)
+            if wall is not None and wall not in found:
+                found.append(wall)
     return found
 
 
