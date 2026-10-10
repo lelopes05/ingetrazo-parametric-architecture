@@ -135,6 +135,36 @@ def selected_walls(scene):
     return found
 
 
+def selected_hosted_opening(scene):
+    """Resolve the exact opening selected through its independent 3D fill.
+
+    Selecting a window Group is NOT equivalent to picking the first void of
+    its host: use the persisted (host_id, opening_id, source_id) triple.
+    Ambiguous/multiple selections must not silently target another opening.
+    """
+    if getattr(scene, "edit_group", None) is not None:
+        return None
+    matches = []
+    for selected in scene.selection:
+        group = getattr(selected, "owner", None) or selected
+        rec = _fill_record(group)
+        if rec is None:
+            continue
+        wall = next((g for g in scene.groups
+                     if getattr(g, "uid", None) == rec.get("host_id")
+                     and wall_record(g) is not None), None)
+        if wall is None:
+            continue
+        try:
+            opening = next(o for o in read_wall(wall).get("openings", ())
+                           if o.get("id") == rec.get("opening_id")
+                           and o.get("source_id") == rec.get("source_id"))
+        except (StopIteration, WallError):
+            continue
+        matches.append((wall, opening["id"]))
+    return matches[0] if len(matches) == 1 else None
+
+
 class WallController(QObject):
     def __init__(self, app):
         super().__init__(app.window)
@@ -173,6 +203,7 @@ class WallController(QObject):
         self._opening_wire_data = []
         self._fill_sync_key = None
         self._active_opening_wall = None
+        self._fields_opening_id = None
         self._make_panel()
         self._make_actions()
         self._make_path_palette()
@@ -816,7 +847,10 @@ class WallController(QObject):
     def _load_opening_fields(self, openings):
         ops=list(openings or [])
         if not ops:
-            self._active_opening_id=None;self.opening_widget.hide();return
+            self._active_opening_id=None
+            self._fields_opening_id=None
+            self.opening_widget.hide()
+            return
         item=next((x for x in ops if x.get("id")==self._active_opening_id),ops[0]);self._active_opening_id=item.get("id")
         self.opening_widget.show();blocked=[]
         selector_block=self.opening_selector.blockSignals(True)
@@ -856,6 +890,7 @@ class WallController(QObject):
             oldb=self.opening_fill.blockSignals(True);fill=item.get("fill") if isinstance(item.get("fill"),dict) else {};cls=fill.get("class") or item.get("fill_class") or item.get("ifc_fill_class");idx=self.opening_fill.findData(cls);self.opening_fill.setCurrentIndex(idx if idx>=0 else 0);self.opening_fill.blockSignals(oldb)
         finally:
             for f,b in blocked:f.blockSignals(b)
+        self._fields_opening_id=self._active_opening_id
 
     def _find_linked_fill(self, opening):
         if self.target is None or not opening.get("source_id"):
@@ -911,6 +946,8 @@ class WallController(QObject):
         oid=self.opening_selector.currentData()
         if oid:
             self._active_opening_id=oid
+            self._loaded_key=None
+            self._state_key=None
             self._load_opening_fields(read_wall(self.target).get("openings",[]))
             self.app.viewport.update()
 
@@ -952,6 +989,7 @@ class WallController(QObject):
             return
         self._active_opening_wall=wall
         self._active_opening_id=oid
+        self._loaded_key=None
         self._state_key=None
         self.schedule_refresh()
         if handle:
@@ -1448,6 +1486,8 @@ class WallController(QObject):
         scene, vp = self.app.scene, self.app.viewport
         if scene is not self._document:
             self._active_opening_wall = None
+            self._active_opening_id = None
+            self._fields_opening_id = None
             self._document = scene
             self.tool.reset()
             self.curve_create_tool.reset()
@@ -1509,15 +1549,26 @@ class WallController(QObject):
                 vp.notify_scene_changed()
 
         walls = selected_walls(scene)
+        # A separately selectable door/window must activate ITS linked void,
+        # not whichever opening was previously displayed in the wall editor.
+        # Native virtual picks take precedence over ordinary scene selection.
+        current_pick = getattr(vp,"extension_pick",None)
+        linked_selection = selected_hosted_opening(scene) if current_pick is None else None
+        if linked_selection is not None:
+            linked_wall,linked_id = linked_selection
+            if self._active_opening_id != linked_id or self._active_opening_wall is not linked_wall:
+                self._active_opening_wall = linked_wall
+                self._active_opening_id = linked_id
+                self._loaded_key = None
+                self._state_key = None
         # Native extension picks are intentionally absent from scene.selection;
         # represent the selected virtual opening through its host in the editor.
-        current_pick=getattr(vp,"extension_pick",None)
         if (current_pick is not None and self._active_opening_wall in scene.groups
                 and self._active_opening_wall not in walls):
             walls=[self._active_opening_wall]
         selection_key = tuple(sorted(id(w) for w in walls))
         key = (id(scene), scene.version, id(vp.active_tool), id(scene.edit_group),
-               selection_key)
+               selection_key, self._active_opening_id)
         if key == self._state_key:
             return
         self._state_key = key
@@ -1616,7 +1667,8 @@ class WallController(QObject):
             values = self.defaults if drawing else read_wall(self.target)
             if self.target is not None and not scene.entity_selectable(self.target):
                 raise WallError("A parede está bloqueada ou indisponível.")
-            loaded_key = (context, id(self.target), tuple(sorted(values.items())))
+            loaded_key = (context, id(self.target), self._active_opening_id,
+                          tuple(sorted(values.items())))
             if loaded_key != self._loaded_key:
                 self.load_fields(values, preserve_layer_editor=self.layer_editor.user_is_editing())
                 self._loaded_key = loaded_key
