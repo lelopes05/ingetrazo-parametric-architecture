@@ -7,6 +7,7 @@ readable so old test files can be opened and migrated by the split command.
 """
 from __future__ import annotations
 
+import bisect
 import copy
 import math
 
@@ -666,20 +667,18 @@ def _point_on_path_distance(points, cumulative, distance):
     if len(points)==1 or cumulative[-1] <= 1.0e-12:
         return QVector3D(points[0])
     d=max(0.0,min(cumulative[-1],float(distance)))
-    for i,(a,b) in enumerate(zip(cumulative,cumulative[1:])):
-        if d <= b + 1.0e-12:
-            u=0.0 if b<=a else (d-a)/(b-a)
-            return points[i]+(points[i+1]-points[i])*u
-    return QVector3D(points[-1])
+    i=max(0,min(len(points)-2,bisect.bisect_left(cumulative,d+1.0e-12)-1))
+    a,b=cumulative[i],cumulative[i+1]
+    u=0.0 if b<=a else max(0.0,min(1.0,(d-a)/(b-a)))
+    return points[i]+(points[i+1]-points[i])*u
 
 def _side_point_at_reference_distance(side, ref_cum, distance):
     """Interpolate an offset side using the reference-path parameterization."""
     d=max(0.0,min(ref_cum[-1],float(distance)))
-    for i,(a,b) in enumerate(zip(ref_cum,ref_cum[1:])):
-        if d <= b + 1.0e-12:
-            u=0.0 if b<=a else (d-a)/(b-a)
-            return side[i]+(side[i+1]-side[i])*u
-    return QVector3D(side[-1])
+    i=max(0,min(len(side)-2,bisect.bisect_left(ref_cum,d+1.0e-12)-1))
+    a,b=ref_cum[i],ref_cum[i+1]
+    u=0.0 if b<=a else max(0.0,min(1.0,(d-a)/(b-a)))
+    return side[i]+(side[i+1]-side[i])*u
 
 def wall_opening_intervals(values, path):
     """Return hosted opening spans along the reference path.
@@ -717,6 +716,14 @@ def wall_opening_intervals(values, path):
         max_half=min(pos-margin,L-pos-margin)
         if max_half <= MIN_DIM:
             raise WallError("Não há espaço suficiente para esta abertura na parede.")
+        if len(pts)==2:
+            # For one straight segment, the reference span is exactly the
+            # minimum free width. Avoid ~700 indexed projections per edit.
+            if width*0.5 > max_half+1.0e-9:
+                raise WallError(f"A Largura Livre no menor Vão ({width:.3f} m) não cabe nesta posição da parede.")
+            result.append(dict(o,s0=pos-width*0.5,s1=pos+width*0.5,
+                               reference_span=width))
+            continue
         def free_chord(half):
             a=pos-half;b=pos+half
             la=_side_point_at_reference_distance(side_low,ref_cum,a);lb=_side_point_at_reference_distance(side_low,ref_cum,b)
@@ -732,7 +739,9 @@ def wall_opening_intervals(values, path):
             prev=h
         if hi is None:
             raise WallError(f"A Largura Livre no menor Vão ({width:.3f} m) não cabe nesta posição da parede.")
-        for _ in range(48):
+        for _ in range(36):
+            if hi-lo < 1.0e-9:
+                break
             mid=(lo+hi)*0.5
             if free_chord(mid) < width:lo=mid
             else:hi=mid
