@@ -815,14 +815,12 @@ class WallController(QObject):
         self.app.viewport.setFocus()
 
     def begin_hosted_fill(self, kind, anchor="center"):
-        # Toolbar actions do not originate from the wall's radial palette.
-        # Do not call _palette_target() in that case: it emits a false error.
-        if self._path_palette_wall is not None:
-            wall,point=self._palette_target()
-        else:
-            walls=selected_walls(self.app.scene)
-            wall=walls[0] if len(walls)==1 else None
-            point=path_world(wall)[0] if wall is not None else None
+        # Toolbar and main panel actions always use CURRENT selection, not
+        # a potentially stale reference stored by the last radial palette.
+        # With no selection, pick the intended wall in the viewport.
+        walls=selected_walls(self.app.scene)
+        wall=walls[0] if len(walls)==1 else None
+        point=path_world(wall)[0] if wall is not None else None
         self.hide_path_palette()
         # No preselected wall? Keep the placement tool active and acquire
         # the wall under the next viewport click, as requested for Abertura.
