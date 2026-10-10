@@ -154,8 +154,12 @@ class OpeningHandleDragTool(Tool):
         try:
             if self.fill is not None:
                 old=self.spec
-                changes={key:value for key,value in self.preview_value.items()
-                         if abs(value-float(old[key]))>1.e-8}
+                changes={}
+                for key,value in self.preview_value.items():
+                    if key=="position":
+                        value=old["position"]+(value-float(self.original["position"]))
+                    if abs(value-float(old[key]))>1.e-8:
+                        changes[key]=value
                 if not changes:
                     self.controller.return_to_select()
                     return
