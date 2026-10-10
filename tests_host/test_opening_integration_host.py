@@ -215,6 +215,99 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         cmd.undo(scene)
         self.assertAlmostEqual(read_wall(wall)["length"],5.0)
 
+    def test_shrinking_past_hosted_void_does_not_throw_during_vertex_preview(self):
+        """The original regression: valid 5→4 m, invalid 5→3/2 m."""
+        from OpenTrace_BIM.path_edit import MoveWallVertexTool
+        scene,wall=scene_wall([{
+            "id":"shrink-opening","position":2.5,"width":1.0,
+            "sill":.6,"height":1.2}])
+        scene.selection.add(wall)
+        values=read_wall(wall)
+        original_children=wall.children[:]
+        ctrl=SimpleNamespace(app=SimpleNamespace(scene=scene))
+        tool=MoveWallVertexTool(ctrl,"continue")
+        tool.group=wall
+        tool.scene=scene
+        tool.values=values
+        tool.kind="line"
+        tool.endpoint=1
+        tool.refs=[QVector3D(0,0,0),QVector3D(5,0,0)]
+        for length in (4.0,3.0,2.0,4.0):
+            tool.hover=QVector3D(length,0,0)
+            preview=tool.preview_faces()
+            if length==4.0:
+                self.assertGreater(len(preview),0)
+            else:
+                self.assertEqual(preview,[])
+            self.assertIs(wall.children[0],original_children[0])
+            self.assertEqual(read_wall(wall)["openings"][0]["id"],"shrink-opening")
+            self.assertIn(wall,scene.selection)
+
+    def test_selected_3d_fill_resolves_exact_opening_not_previous_one(self):
+        from OpenTrace_BIM.ui import selected_hosted_opening
+        scene,wall=scene_wall()
+        fills=[]
+        for name,pos in (("left",1.15),("right",3.75)):
+            cmd=CreateHostedFill(scene,wall,{
+                "id":f"window-{name}", "opening_id":f"cut-{name}",
+                "host_id":wall.uid,"kind":"window",
+                "position":pos,"width":.7,"height":1.2,
+                "sill":.9,"anchor":"center"})
+            cmd.do(scene)
+            fills.append(cmd.group)
+        scene.selection.clear()
+        scene.selection.add(fills[1])
+        selected=selected_hosted_opening(scene)
+        self.assertIsNotNone(selected)
+        self.assertIs(selected[0],wall)
+        self.assertEqual(selected[1],"cut-right")
+        scene.selection.clear()
+        scene.selection.add(fills[0])
+        self.assertEqual(selected_hosted_opening(scene)[1],"cut-left")
+        scene.selection.add(fills[1])
+        self.assertIsNone(selected_hosted_opening(scene))
+
+    def test_switching_openings_never_applies_old_widget_values(self):
+        from OpenTrace_BIM.ui import WallController
+        scene,wall=scene_wall([
+            {"id":"A","position":1.15,"width":.75,"sill":.5,"height":1.2},
+            {"id":"B","position":3.75,"width":.75,"sill":.6,"height":1.2},
+        ])
+        class Field:
+            def __init__(self,value):self.v=value
+            def value(self):return self.v
+            def interpretText(self):pass
+        original=read_wall(wall)
+        fields={k:Field(float(original["openings"][0][k]))
+                for k in ("position","width","sill","height")}
+        fields["width"].v=.95
+        changed=[]
+        class History:
+            last_error=None
+            def execute(self,command):
+                changed.append(command)
+                command.do(scene)
+        vp=SimpleNamespace(history=History(),notify_scene_changed=lambda:None)
+        ctl=SimpleNamespace(_loading=False,target=wall,_active_opening_id="B",
+                _fields_opening_id="A",_loaded_key=("old",),
+                _state_key=("old",), opening_fields=fields,
+                opening_fill=object(),app=SimpleNamespace(scene=scene,viewport=vp),
+                sender=lambda:fields["width"],_find_linked_fill=lambda _op:None,
+                schedule_refresh=lambda:None,message=lambda *a,**kw:None)
+        WallController.opening_changed(ctl)
+        self.assertFalse(changed)
+        self.assertEqual(read_wall(wall)["openings"],original["openings"])
+        # After a switch synchronously reloads the correct opening, only
+        # the edited width may commit; all OTHER stale fields are ignored.
+        ctl._fields_opening_id="B"
+        WallController.opening_changed(ctl)
+        self.assertEqual(len(changed),1)
+        updated=read_wall(wall)["openings"]
+        self.assertEqual(updated[0],original["openings"][0])
+        self.assertAlmostEqual(updated[1]["width"],.95)
+        for key in ("position","sill","height"):
+            self.assertEqual(updated[1][key],original["openings"][1][key])
+
     def test_curved_host_outline_keeps_mesh_independent(self):
         values=dict(DEFAULTS,length=4.0,openings=[
             {"id":"curved-cut","position":2.0,"width":.8,
