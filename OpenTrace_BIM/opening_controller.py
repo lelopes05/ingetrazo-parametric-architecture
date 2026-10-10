@@ -105,23 +105,75 @@ def _dist_segment(x, y, a, b):
     return ((x-a[0]-u*dx)**2+(y-a[1]-u*dy)**2)**0.5
 
 
-def hit_test(viewport, wires, x, y, *, active_id=None, threshold=9.0):
-    """Pick a visible virtual outline/handle. Never pick the invisible volume."""
-    best = None
-    for opening_id, lines, grips in wires:
-        if opening_id == active_id:
-            for handle_id, p in grips:
-                q = viewport._world_to_pixel(p)
+def _inside_loop(x, y, loop):
+    """Even/odd hit test on the visible wall-side outline in screen space."""
+    n=len(loop)
+    if n<3:
+        return False
+    inside=False
+    for i in range(n):
+        ax,ay=loop[i]
+        bx,by=loop[(i+1)%n]
+        if (ay>y)!=(by>y):
+            cross=ax+(y-ay)*(bx-ax)/(by-ay)
+            if x<cross:
+                inside=not inside
+    return inside
+
+
+def _contains_visible_face(viewport, lines, x, y):
+    """A click IN an empty opening is a valid pick, not only its perimeter."""
+    if len(lines)<9 or len(lines)%3:
+        return False
+    n=len(lines)//3
+    if n==4:
+        # Rectangles use bottom/top thickness loops: reconstruct the
+        # projected near and far wall faces rather than those thin quads.
+        faces=(
+            (lines[0][0],lines[0][1],lines[4][1],lines[4][0]),
+            (lines[2][1],lines[2][0],lines[6][0],lines[6][1]),
+        )
+    else:
+        # Polygon cutter first draws the near/far elevation perimeters.
+        faces=(
+            tuple(lines[i][0] for i in range(n)),
+            tuple(lines[n+i][0] for i in range(n)),
+        )
+    for face in faces:
+        screen=[viewport._world_to_pixel(v) for v in face]
+        if None not in screen and _inside_loop(x,y,screen):
+            return True
+    return False
+
+
+def hit_test(viewport, wires, x, y, *, active_id=None, threshold=9.0,
+             allow_interior=False):
+    """Pick the outline/hotspots and optionally the empty visible hole.
+
+    Interior selection is restricted by the caller to EMPTY openings so a
+    real Door/Window Group can still be selected by clicking its leaf/glass.
+    """
+    best=None
+    for opening_id,lines,grips in wires:
+        if opening_id==active_id:
+            for handle_id,p in grips:
+                q=viewport._world_to_pixel(p)
                 if q is None:
                     continue
-                d = ((x-q[0])**2+(y-q[1])**2)**0.5
-                if d <= threshold and (best is None or d < best[0]):
-                    best = (d, opening_id, handle_id)
-        for a, b in lines:
-            pa, pb = viewport._world_to_pixel(a), viewport._world_to_pixel(b)
+                d=((x-q[0])**2+(y-q[1])**2)**0.5
+                if d<=threshold and (best is None or d<best[0]):
+                    best=(d,opening_id,handle_id)
+        for a,b in lines:
+            pa,pb=viewport._world_to_pixel(a),viewport._world_to_pixel(b)
             if pa is None or pb is None:
                 continue
-            d = _dist_segment(x, y, pa, pb)
-            if d <= threshold and (best is None or d < best[0]):
-                best = (d, opening_id, None)
-    return None if best is None else (best[1], best[2])
+            d=_dist_segment(x,y,pa,pb)
+            if d<=threshold and (best is None or d<best[0]):
+                best=(d,opening_id,None)
+    if best is not None:
+        return best[1],best[2]
+    if allow_interior:
+        for opening_id,lines,_grips in wires:
+            if _contains_visible_face(viewport,lines,x,y):
+                return opening_id,None
+    return None
