@@ -57,12 +57,18 @@ class WallOpeningTool(Tool):
         self.fill_anchor = fill_anchor
         self.void_preset = void_preset
         self.group = group
-        self.anchor = QVector3D(anchor)
-        self.start_point = QVector3D(anchor)
+        self.anchor = QVector3D(anchor) if anchor is not None else None
+        self.start_point = QVector3D(anchor) if anchor is not None else None
 
     def on_activate(self, viewport):
-        if self.group is None or self.group not in viewport.scene.groups:
-            QTimer.singleShot(0, self.controller.return_to_select)
+        if self.group is None:
+            self.controller.message(
+                "Clique na parede para posicionar a abertura; Esc cancela.")
+            viewport.update()
+            return
+        if self.group not in viewport.scene.groups:
+            self.controller.message("A parede não está mais disponível.",error=True)
+            QTimer.singleShot(0,self.controller.return_to_select)
             return
         try:
             if wall_path_kind(self.group) not in ("line", "arc"):
@@ -126,8 +132,29 @@ class WallOpeningTool(Tool):
         wall_opening_intervals(vals, path_world(self.group))
         return vals
 
+    def _acquire_host(self, ctx):
+        """Pick a real wall directly, without requiring a prior selection."""
+        if self.values is not None:
+            return True
+        vp=ctx.viewport
+        pick=getattr(vp,"pick_group",None)
+        if not callable(pick):
+            return False
+        group=pick(ctx.screen.x(),ctx.screen.y())
+        from .model import wall_record
+        if group is None or wall_record(group) is None:
+            return False
+        if (not vp.scene.entity_selectable(group)
+                or not vp.scene.entity_visible(group)):
+            return False
+        kind,anchor,preset=self.kind,self.fill_anchor,self.void_preset
+        self.prepare(group,ctx.world,kind=kind,fill_anchor=anchor,
+                     void_preset=preset)
+        self.on_activate(vp)
+        return self.values is not None
+
     def on_hover(self, ctx):
-        if self.values is None:
+        if self.values is None and not self._acquire_host(ctx):
             return
         try:
             self.position = nearest_path_distance_world(self.group, ctx.world)
@@ -153,11 +180,17 @@ class WallOpeningTool(Tool):
 
     def on_click(self, ctx):
         try:
+            if self.values is None and not self._acquire_host(ctx):
+                raise WallError("Clique sobre uma face de parede paramétrica.")
+            self.position=nearest_path_distance_world(self.group,ctx.world)
+            self._clamp_position()
             vals = self._candidate_values()
             ctx.viewport.history.execute(self._command(ctx.viewport.scene, vals))
             if ctx.viewport.history.last_error:
                 raise WallError(ctx.viewport.history.last_error)
             self.controller._active_opening_id = self.item["id"]
+            self.controller._active_opening_wall = self.group
+            ctx.viewport.scene.selection.add(self.group)
             ctx.viewport.notify_scene_changed()
             self.controller._state_key = None
             self.controller.message("Vão e esquadria criados." if self.kind != "opening" else "Abertura hospedada criada.")
@@ -175,6 +208,8 @@ class WallOpeningTool(Tool):
             if viewport.history.last_error:
                 raise WallError(viewport.history.last_error)
             self.controller._active_opening_id = self.item["id"]
+            self.controller._active_opening_wall = self.group
+            viewport.scene.selection.add(self.group)
             viewport.notify_scene_changed(); self.controller._state_key = None
             self.controller.message("Abertura hospedada criada.")
             self.reset(); self.controller.return_to_select(); return True
