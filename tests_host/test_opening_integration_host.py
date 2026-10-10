@@ -305,6 +305,25 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         for key in ("position","sill","height"):
             self.assertEqual(updated[1][key],original["openings"][1][key])
 
+    def test_virtual_controller_persists_outside_receded_wall(self):
+        scene,wall=scene_wall([{
+            "id":"ghost-cut","position":2.5,"width":1.0,"sill":.8,
+            "height":1.2}])
+        data=read_wall(wall)
+        data["length"]=1.5
+        EditWall(scene,wall,data).do(scene)
+        self.assertEqual(wall_opening_intervals(
+            read_wall(wall),
+            __import__("OpenTrace_BIM.model",fromlist=["path_world"]).path_world(wall)),[])
+        wires=all_opening_wires(wall,read_wall(wall))
+        self.assertEqual(len(wires),1)
+        self.assertEqual(len(wires[0][1]),12)
+        self.assertEqual(len(wires[0][2]),6)
+        selected=hit_test(FakeViewport(),wires,250,-140,
+                          allow_interior=True)
+        self.assertEqual(selected,("ghost-cut",None))
+        self.assertGreater(wires[0][2][0][1].x(),1.5)
+
     def test_wall_recedes_through_opening_and_reexpands_without_losing_params(self):
         from OpenTrace_BIM.model import wall_opening_intervals, path_world
         opening={"id":"recede","position":2.5,"width":1.0,"sill":.8,
