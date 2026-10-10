@@ -241,6 +241,10 @@ class WallPolygonTool(Tool):
         self.values = vals
         self.opening_id = uid
         self.controller._active_opening_id = uid
+        self.controller._active_opening_wall = self.wall
+        # Keep the edited host selected, as the slab editor does, so the
+        # remaining logical opening handles stay visible after committing.
+        viewport.scene.selection.add(self.wall)
         self.controller._state_key = None
         viewport.notify_scene_changed()
         self.controller.message("Abertura poligonal atualizada." if replace else
