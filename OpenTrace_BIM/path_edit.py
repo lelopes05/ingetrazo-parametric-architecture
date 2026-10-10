@@ -55,7 +55,13 @@ def _preview_faces_for_segment(start, end, values, template):
     """Build shaded world-space faces for a temporary straight wall."""
     if (end - start).length() < MIN_DIM:
         return []
-    g = make_wall_segment(start, end, values, template=template)
+    # A wall may be shortened past its hosted opening during a drag.
+    # That candidate is INVALID, not a renderer failure. An exception must
+    # never propagate from preview_faces into the viewport's paint routine.
+    try:
+        g = make_wall_segment(start, end, values, template=template)
+    except WallError:
+        return []
     out = []
     for body in g.children:
         for face in body.mesh.faces:
@@ -738,9 +744,14 @@ class MoveWallVertexTool(AxisMagnet, Tool):
         if spec is None or self.values is None or self.group is None:
             return []
         start, end, h = spec
-        if h is None:
-            return _preview_faces_for_segment(start, end, self.values, self.group)
-        return _preview_faces_for_arc(start, end, h, self.values, self.group)
+        try:
+            if h is None:
+                return _preview_faces_for_segment(start, end, self.values, self.group)
+            return _preview_faces_for_arc(start, end, h, self.values, self.group)
+        except WallError:
+            # A failed live candidate (including an opening past the new end)
+            # must not cancel Qt painting or change the persistent wall.
+            return []
 
 
 class ConstrainedMoveWallTool(AxisMagnet, Tool):
