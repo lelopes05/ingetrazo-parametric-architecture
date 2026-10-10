@@ -181,6 +181,9 @@ class OpeningHandleDragTool(Tool):
             ctx.viewport.notify_scene_changed()
             self.controller._active_opening_wall=self.wall
             self.controller._active_opening_id=self.opening_id
+            # Restore editable host context after native extension selection
+            # was cleared as the manipulation tool was activated.
+            self.scene.selection.add(self.wall)
             self.controller._loaded_key=None
             self.controller._state_key=None
             self.controller.message("Hotspot atualizado; Ctrl+Z para desfazer.")
