@@ -14,6 +14,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QVector3D
 from tools.base import Tool
 
+from .bim import new_ifc_guid
 from .commands import EditWall
 from .model import (
     WallError, _path_cumulative, _point_on_path_distance,
@@ -176,7 +177,7 @@ class WallPolygonTool(Tool):
         op = {"id": self.opening_id or uuid.uuid4().hex,
               "kind": "polygon", "polygon": polygon,
               "edges": [{"type": "line"} for _ in polygon],
-              "source_id": None}
+              "source_id": None, "ifc_global_id": new_ifc_guid()}
         if replace:
             for i, existing in enumerate(vals["openings"]):
                 if existing.get("id") == self.opening_id:
