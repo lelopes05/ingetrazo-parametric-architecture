@@ -50,8 +50,8 @@ class OpeningHandleDragTool(Tool):
         self.preview_value = None
 
     def prepare(self, wall, opening_id, handle_id, action):
-        permitted = ("width", "position") if handle_id.startswith("bottom-") else ("width", "height")
-        if action not in permitted:
+        permitted = ("width","position","move") if handle_id.startswith("bottom-") else ("width","height")
+        if action not in permitted or (action=="move" and handle_id!="bottom-center"):
             raise WallError("Operação não permitida neste hotspot.")
         self.reset()
         self.wall = wall
@@ -118,7 +118,11 @@ class OpeningHandleDragTool(Tool):
         width=old_width
         position=float(original["position"])
         height=float(original["height"])
-        if self.action=="position":
+        sill=float(original["sill"])
+        if self.action=="move":
+            position=max(0.0,position+s-self.station)
+            sill=max(0.0,sill+float(world.z()-self.grip.z()))
+        elif self.action=="position":
             position=max(0.0,position+s-self.station)
         elif self.action=="width":
             side=self.handle_id.rsplit("-",1)[-1]
@@ -128,12 +132,13 @@ class OpeningHandleDragTool(Tool):
             height=max(MIN_DIM,min(MAX_DIM,
                 height+float(world.z()-self.grip.z())))
         result=copy.deepcopy(original)
-        result.update(position=position,width=width,height=height)
+        result.update(position=position,width=width,height=height,sill=sill)
         raw=copy.deepcopy(self.values)
         raw["openings"]=[result if o["id"]==self.opening_id else o
                          for o in raw["openings"]]
         wall_opening_intervals(raw,path_world(self.wall))
-        return result,{"position":position,"width":width,"height":height}
+        return result,{"position":position,"width":width,
+                       "height":height,"sill":sill}
 
     def on_hover(self,ctx):
         if self.wall is None or ctx.viewport.scene is not self.scene:
