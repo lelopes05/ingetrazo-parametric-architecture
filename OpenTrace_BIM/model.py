@@ -102,8 +102,12 @@ def normalize_wall_openings(raw, length, height):
             raise WallError("Abertura da parede contém medidas inválidas.") from exc
         if width < MIN_DIM or oh < MIN_DIM:
             raise WallError("Largura livre e altura da abertura devem ser positivas.")
-        if not MIN_DIM < pos < length-MIN_DIM:
-            raise WallError("A abertura precisa ficar entre os extremos da parede.")
+        # Host edits may shorten a wall through an existing opening.
+        # Preserve the opening's authored station/size and IFC identity even
+        # when the host only partially intersects it (or not at all).
+        # Placement tools enforce in-wall positions when creating NEW voids.
+        if pos < 0.0:
+            raise WallError("A posição da abertura não pode ser negativa.")
         # Doors may touch the wall base, and a nominal door taller than the
         # local wall must not delete the wall. The generator clips the head
         # at the available local top. Keep openings beginning above the
@@ -711,42 +715,70 @@ def wall_opening_intervals(values, path):
             result.append(dict(o, s0=s0, s1=s1, reference_span=s1-s0))
             continue
         pos=float(o["position"]);width=float(o["width"])
-        if not margin < pos < L-margin:
-            raise WallError("A abertura precisa ficar afastada dos extremos da parede.")
-        max_half=min(pos-margin,L-pos-margin)
-        if max_half <= MIN_DIM:
-            raise WallError("Não há espaço suficiente para esta abertura na parede.")
+        # The logical cutter exists independently of the wall ends.
+        # The *effective* cut is just the intersection with [0, L].
+        # Never shrink/translate the stored cutter as a side effect of
+        # changing the wall length; growing the wall restores the full void.
+        lo=pos-width*0.5
+        hi=pos+width*0.5
+        if hi <= 1.0e-9 or lo >= L-1.0e-9:
+            continue  # no physical cut; the opening remains in wall data
         if len(pts)==2:
-            # For one straight segment, the reference span is exactly the
-            # minimum free width. Avoid ~700 indexed projections per edit.
-            if width*0.5 > max_half+1.0e-9:
-                raise WallError(f"A Largura Livre no menor Vão ({width:.3f} m) não cabe nesta posição da parede.")
-            result.append(dict(o,s0=pos-width*0.5,s1=pos+width*0.5,
-                               reference_span=width))
+            cut_a=max(0.0,lo)
+            cut_b=min(L,hi)
+            if cut_b-cut_a > 1.0e-9:
+                result.append(dict(o,s0=cut_a,s1=cut_b,
+                                   reference_span=width,
+                                   cut_clipped=(cut_a>lo+1e-9 or cut_b<hi-1e-9)))
             continue
+        # Curved openings retain free-width semantics whenever their entire
+        # nominal span fits. At a boundary, use the remaining *visible*
+        # reference arc; the authored width does not mutate.
+        margin=max(0.02,MIN_DIM*5)
+        if (pos-margin<=0 or L-pos-margin<=0 or
+                width*0.5 > min(pos-margin,L-pos-margin)):
+            cut_a=max(0.0,lo)
+            cut_b=min(L,hi)
+            if cut_b-cut_a > 1.0e-9:
+                result.append(dict(o,s0=cut_a,s1=cut_b,
+                                   reference_span=width,cut_clipped=True))
+            continue
+        max_half=min(pos-margin,L-pos-margin)
         def free_chord(half):
             a=pos-half;b=pos+half
             la=_side_point_at_reference_distance(side_low,ref_cum,a);lb=_side_point_at_reference_distance(side_low,ref_cum,b)
             ha=_side_point_at_reference_distance(side_high,ref_cum,a);hb=_side_point_at_reference_distance(side_high,ref_cum,b)
             return min((lb-la).length(),(hb-ha).length())
-        # Find the first crossing instead of assuming chord length stays
-        # monotonic over a very long arc (past a semicircle it can decrease).
-        lo=0.0;hi=None;prev=0.0
+        lo_half=0.0
+        hi_half=None
+        prev=0.0
         for step in range(1,129):
             h=max_half*(step/128.0)
-            if free_chord(h) >= width-1.0e-9:
-                lo=prev;hi=h;break
-            prev=h
-        if hi is None:
-            raise WallError(f"A Largura Livre no menor Vão ({width:.3f} m) não cabe nesta posição da parede.")
-        for _ in range(36):
-            if hi-lo < 1.0e-9:
+            if free_chord(h)>=width-1.0e-9:
+                lo_half=prev
+                hi_half=h
                 break
-            mid=(lo+hi)*0.5
-            if free_chord(mid) < width:lo=mid
-            else:hi=mid
-        half=(lo+hi)*0.5
-        result.append(dict(o,s0=pos-half,s1=pos+half,reference_span=2.0*half))
+            prev=h
+        if hi_half is None:
+            # The desired opening is wider than the remaining wall: clip
+            # rather than blocking the host edit.
+            cut_a=max(0.0,lo)
+            cut_b=min(L,hi)
+            if cut_b-cut_a > 1.0e-9:
+                result.append(dict(o,s0=cut_a,s1=cut_b,
+                                   reference_span=width,cut_clipped=True))
+            continue
+        for _ in range(36):
+            if hi_half-lo_half<1e-9:
+                break
+            mid=(lo_half+hi_half)*0.5
+            if free_chord(mid)<width:
+                lo_half=mid
+            else:
+                hi_half=mid
+        half=(lo_half+hi_half)*0.5
+        result.append(dict(o,s0=pos-half,s1=pos+half,
+                           reference_span=2.0*half,cut_clipped=False))
     result.sort(key=lambda x:x["s0"])
     for a,b in zip(result,result[1:]):
         if b["s0"] < a["s1"]-1.0e-8:
@@ -922,15 +954,41 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
             return _lerp_side_point(low_b[idx], low_t[idx], base_z[idx], top_z[idx], z)
         return _lerp_side_point(high_b[idx], high_t[idx], base_z[idx], top_z[idx], z)
 
-    # End caps.
-    face([QVector3D(high_b[0].x(), high_b[0].y(), base_z[0]),
-          QVector3D(low_b[0].x(), low_b[0].y(), base_z[0]),
-          QVector3D(low_t[0].x(), low_t[0].y(), top_z[0]),
-          QVector3D(high_t[0].x(), high_t[0].y(), top_z[0])], "start")
-    face([QVector3D(low_b[-1].x(), low_b[-1].y(), base_z[-1]),
-          QVector3D(high_b[-1].x(), high_b[-1].y(), base_z[-1]),
-          QVector3D(high_t[-1].x(), high_t[-1].y(), top_z[-1]),
-          QVector3D(low_t[-1].x(), low_t[-1].y(), top_z[-1])], "end")
+    # End caps must also be cut where a void crosses an endpoint. Keeping
+    # the old FULL end face made receded walls falsely cover part of a doorway
+    # and created a nonmanifold seam at the clipped opening boundary.
+    def end_cap(idx, side):
+        at=0.0 if idx==0 else L
+        boundary=next((o for o in ops
+                       if o["s0"]-1e-8<=at<=o["s1"]+1e-8),None)
+        height=top_z[idx]-base_z[idx]
+        if boundary is None:
+            bands=[(base_z[idx],top_z[idx])]
+        else:
+            from .opening_profile import opening_slice
+            aperture=opening_slice(height,boundary["sill"],boundary["height"])
+            zlow=base_z[idx]+boundary["sill"]
+            zhigh=min(top_z[idx],zlow+boundary["height"])
+            bands=[]
+            if not aperture["cut"]:
+                bands=[(base_z[idx],top_z[idx])]
+            else:
+                if zlow-base_z[idx] > 1.e-9:
+                    bands.append((base_z[idx],zlow))
+                if top_z[idx]-zhigh > 1.e-9:
+                    bands.append((zhigh,top_z[idx]))
+        for bottom,top in bands:
+            low0=side_at(idx,"low",bottom)
+            high0=side_at(idx,"high",bottom)
+            low1=side_at(idx,"low",top)
+            high1=side_at(idx,"high",top)
+            if side=="start":
+                face([high0,low0,low1,high1],"start")
+            else:
+                face([low0,high0,high1,low1],"end")
+
+    end_cap(0,"start")
+    end_cap(-1,"end")
 
     for i, (sa, sb) in enumerate(zip(ss, ss[1:])):
         if sb-sa <= 1.0e-10:
