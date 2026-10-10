@@ -9,7 +9,7 @@ from .materials import stamp_named_material, stamp_structured_materials
 from .model import (ARC_EPS, DERIVED_KEY, KEY, MIN_DIM, MAX_DIM, WallError,
                     arc_points, arc_record, build_body, build_children, edit_placement,
                     make_arc_wall, make_wall_segment, path_length, path_length_from_record,
-                    path_world, read_wall, record, validate, wall_path,
+                    path_world, read_wall, record, validate, wall_caps, wall_path,
                     wall_path_kind, wall_record, wall_reference_vertices, reference_vertices_world, wall_has_custom_profile, profile_at_fraction,
                     finalize_wall_surface_maps)
 
@@ -137,8 +137,16 @@ class EditWall(Command):
         else:
             path_record = copy.deepcopy(rec.get("path")) if rec else None
             p["length"] = path_length_from_record(rec) if rec else path_length(path)
+        # A change to the cut alone must not erase the host's stable junction
+        # caps and immediately regenerate its expensive mesh a second time.
+        # Complex overlap/crease masks still take the full derived cleanup path.
+        same_host = all(p.get(k) == old.get(k) for k in old if k != "openings")
+        derived = (group.ext or {}).get(DERIVED_KEY, {})
+        safe_derived = (same_host and isinstance(derived, dict)
+                        and not derived.get("creases") and not derived.get("edge_masks"))
+        caps = wall_caps(group) if safe_derived else None
         children = build_children(p, previous_children=group.children, path=path,
-                                  smooth_path=(kind == "arc"))
+                                  caps=caps, smooth_path=(kind == "arc"))
         temp = type("_LayerHolder", (), {})(); temp.children=children
         stamp_structured_materials(temp, scene, p, clear=True)
         # Material stamping is intentionally followed by the surface-map pass:
@@ -146,8 +154,9 @@ class EditWall(Command):
         # continuous UV map when the command is committed.
         finalize_wall_surface_maps(children, p, path, smooth_path=(kind == "arc"))
         ext = copy.deepcopy(group.ext)
-        ext[KEY] = record(p, path, path_record=path_record)
-        ext.pop(DERIVED_KEY, None)
+        ext[KEY] = record(p, path, caps=caps, path_record=path_record)
+        if not safe_derived:
+            ext.pop(DERIVED_KEY, None)
         self.group = group
         self.before = (list(group.children), copy.deepcopy(group.ext), QMatrix4x4(group.xform))
         self.after = (children, ext, edit_placement(group, p["base"]))
