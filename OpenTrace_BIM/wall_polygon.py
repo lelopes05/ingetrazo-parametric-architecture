@@ -254,6 +254,25 @@ def move_edge(points, edge_index, delta, length, *, allow_outside=False):
 
 
 
+def rectangle_to_polygon(opening, length):
+    """Editable wall-elevation corners for a free rectangular void.
+
+    Converting at the FIRST real vertex/edge commit is atomic with the edit.
+    It never converts live IfcDoor/IfcWindow fills, which need their own
+    parametric width/sill/height controls to stay hosted.
+    """
+    if opening.get("source_id") or opening.get("fill"):
+        raise ValueError("Esquadria hospedada não pode ser convertida em vão livre.")
+    position=float(opening["position"])
+    half=float(opening["width"])*.5
+    sill=float(opening["sill"])
+    top=sill+float(opening["height"])
+    return normalize_polygon([
+        [position-half,sill],[position+half,sill],
+        [position+half,top],[position-half,top]],
+        length,allow_outside=True)
+
+
 def translate_polygon(points, delta, length, *, allow_outside=True):
     """Move the whole authored opening in wall station/elevation coordinates."""
     dx,dz=map(float,delta)
