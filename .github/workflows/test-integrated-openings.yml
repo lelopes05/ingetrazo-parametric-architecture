@@ -1,0 +1,83 @@
+name: OpenTrace integrated openings / door-window experimental gate
+
+on:
+  push:
+    branches:
+      - dev/opening-controller-integration-2026-10-10
+    paths:
+      - 'OpenTrace_BIM/**'
+      - 'tests/**'
+      - 'tests_host/**'
+      - 'docs/DEVELOPMENT_MASTER.md'
+      - '.github/workflows/test-integrated-openings.yml'
+  workflow_dispatch:
+
+jobs:
+  pure-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python compile and pure contract tests
+        run: |
+          python -m compileall -q OpenTrace_BIM
+          python -m unittest discover -s tests -v
+
+  host-tests:
+    needs: pure-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: ingelibre/ingetrazo
+          path: ingetrazo
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Native host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libopengl0 libxkbcommon0
+          python -m pip install 'PySide6>=6.9,<7' 'numpy>=1.26,<3'
+      - name: Test real IngeTrazo scene, mesh, IFC and IGZ
+        working-directory: plugin
+        env:
+          PYTHONPATH: "${{ github.workspace }}/ingetrazo:${{ github.workspace }}/plugin"
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests_host -v
+
+  experimental-package:
+    needs: host-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive test-only plugin, never release
+        run: |
+          python - <<'PY'
+          import pathlib, zipfile, hashlib
+          root=pathlib.Path("OpenTrace_BIM")
+          out=pathlib.Path("opentrace-integrated-openings-EXPERIMENTAL.zip")
+          with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as z:
+              for p in sorted(root.rglob("*")):
+                  if p.is_file() and "__pycache__" not in p.parts and p.suffix not in (".pyc",):
+                      z.write(p,p.as_posix())
+          data=out.read_bytes()
+          pathlib.Path(str(out)+".sha256").write_text(hashlib.sha256(data).hexdigest()+"  "+out.name+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opentrace-integrated-openings-EXPERIMENTAL
+          path: |
+            opentrace-integrated-openings-EXPERIMENTAL.zip
+            opentrace-integrated-openings-EXPERIMENTAL.zip.sha256
