@@ -216,7 +216,7 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         self.assertAlmostEqual(read_wall(wall)["length"],5.0)
 
     def test_shrinking_past_hosted_void_does_not_throw_during_vertex_preview(self):
-        """The original regression: valid 5→4 m, invalid 5→3/2 m."""
+        """Original bug 5→3/2 must now preview a clipped/free host, not fail."""
         from OpenTrace_BIM.path_edit import MoveWallVertexTool
         scene,wall=scene_wall([{
             "id":"shrink-opening","position":2.5,"width":1.0,
@@ -235,10 +235,7 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         for length in (4.0,3.0,2.0,4.0):
             tool.hover=QVector3D(length,0,0)
             preview=tool.preview_faces()
-            if length==4.0:
-                self.assertGreater(len(preview),0)
-            else:
-                self.assertEqual(preview,[])
+            self.assertGreater(len(preview),0, f"preview should allow {length} m")
             self.assertIs(wall.children[0],original_children[0])
             self.assertEqual(read_wall(wall)["openings"][0]["id"],"shrink-opening")
             self.assertIn(wall,scene.selection)
