@@ -145,8 +145,11 @@ class EditHostedFill(Command):
                 raise FillError("Não é permitido trocar a identidade da esquadria.")
         self.wall = wall
         self.group = group
-        self.wall_edit = EditWall(
-            scene, wall, _wall_values_with_fill(wall, self.spec, allow_existing=True))
+        requested_wall = _wall_values_with_fill(wall, self.spec, allow_existing=True)
+        # Reversing swing, changing anchor label or hinge never affects the
+        # host void. Do not rebuild a potentially huge curved wall for it.
+        self.wall_edit = (EditWall(scene, wall, requested_wall)
+                          if requested_wall != read_wall(wall) else None)
         self.before = self._state(group)
         self.after = None
 
@@ -167,7 +170,8 @@ class EditHostedFill(Command):
     def do(self, scene):
         if self.group not in scene.groups:
             raise FillError("A esquadria foi removida do documento.")
-        self.wall_edit.do(scene)
+        if self.wall_edit is not None:
+            self.wall_edit.do(scene)
         try:
             if self.after is None:
                 staged = place_fill_on_wall(self.spec, self.wall)
@@ -184,12 +188,14 @@ class EditHostedFill(Command):
                 self.after = self._state(staged)
             self._apply(scene, self.after)
         except Exception:
-            self.wall_edit.undo(scene)
+            if self.wall_edit is not None:
+                self.wall_edit.undo(scene)
             raise
 
     def undo(self, scene):
         self._apply(scene, self.before)
-        self.wall_edit.undo(scene)
+        if self.wall_edit is not None:
+            self.wall_edit.undo(scene)
 
 
 def reverse_hosted_door(scene, wall, group):
