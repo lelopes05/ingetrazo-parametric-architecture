@@ -10,6 +10,8 @@ from PySide6.QtGui import QVector3D
 from tools.base import Tool
 
 from .commands import EditWall
+from .door_window_commands import CreateHostedFill
+from .door_window_core import normalize_fill
 from .model import (
     MIN_DIM, WallError, _offset_path, _path_cumulative,
     _point_on_path_distance, _side_point_at_reference_distance,
@@ -43,8 +45,14 @@ class WallOpeningTool(Tool):
         self.position = 0.0
         self.item = None
         self.start_point = None
+        self.kind = "opening"
+        self.fill_anchor = "center"
 
-    def prepare(self, group, anchor):
+    def prepare(self, group, anchor, *, kind="opening", fill_anchor="center"):
+        if kind not in ("opening", "door", "window"):
+            raise WallError("Ferramenta de vão desconhecida.")
+        self.kind = kind
+        self.fill_anchor = fill_anchor
         self.group = group
         self.anchor = QVector3D(anchor)
         self.start_point = QVector3D(anchor)
@@ -64,11 +72,16 @@ class WallOpeningTool(Tool):
             ))
             if self.length < 0.30 or h < 0.40:
                 raise WallError("A parede é pequena demais para receber a abertura padrão.")
-            width = min(1.00, max(0.20, self.length * 0.30))
-            oh = min(1.20, max(0.20, h * 0.45))
-            sill = min(0.90, max(0.05, h - oh - 0.10))
-            if sill + oh >= h - 0.05:
-                oh = max(0.10, h - sill - 0.10)
+            if self.kind == "door":
+                width, oh, sill = min(0.90, self.length * 0.50), 2.10, 0.0
+            elif self.kind == "window":
+                width, oh, sill = min(1.20, self.length * 0.50), 1.20, min(0.90, h*0.30)
+            else:
+                width = min(1.00, max(0.20, self.length * 0.30))
+                oh = min(1.20, max(0.20, h * 0.45))
+                sill = min(0.90, max(0.05, h - oh - 0.10))
+                if sill + oh >= h - 0.05:
+                    oh = max(0.10, h - sill - 0.10)
             self.position = nearest_path_distance_world(self.group, self.anchor)
             self.item = {
                 "id": uuid.uuid4().hex, "kind": "rect", "position": self.position,
@@ -96,7 +109,8 @@ class WallOpeningTool(Tool):
         if self.item is None:
             return
         margin = max(0.05, MIN_DIM * 5)
-        self.position = max(margin, min(max(margin, self.length - margin), float(self.position)))
+        half = min(self.length / 2 - margin, float(self.item.get("width", 0.0)) / 2 + margin)
+        self.position = max(half, min(max(half, self.length - half), float(self.position)))
         self.item["position"] = self.position
 
     def _candidate_values(self):
@@ -120,16 +134,29 @@ class WallOpeningTool(Tool):
             pass
         ctx.viewport.update()
 
+    def _command(self, scene, values):
+        if self.kind == "opening":
+            return EditWall(scene, self.group, values)
+        anchor_shift = {"left": -0.5, "center": 0.0, "right": 0.5}[self.fill_anchor]
+        spec = normalize_fill({
+            "id": uuid.uuid4().hex, "host_id": str(self.group.uid),
+            "opening_id": self.item["id"], "kind": self.kind,
+            "anchor": self.fill_anchor, "position": self.position + anchor_shift*self.item["width"],
+            "width": self.item["width"], "height": self.item["height"],
+            "sill": self.item["sill"],
+        })
+        return CreateHostedFill(scene, self.group, spec)
+
     def on_click(self, ctx):
         try:
             vals = self._candidate_values()
-            ctx.viewport.history.execute(EditWall(ctx.viewport.scene, self.group, vals))
+            ctx.viewport.history.execute(self._command(ctx.viewport.scene, vals))
             if ctx.viewport.history.last_error:
                 raise WallError(ctx.viewport.history.last_error)
             self.controller._active_opening_id = self.item["id"]
             ctx.viewport.notify_scene_changed()
             self.controller._state_key = None
-            self.controller.message("Abertura hospedada criada.")
+            self.controller.message("Vão e esquadria criados." if self.kind != "opening" else "Abertura hospedada criada.")
             self.reset(); self.controller.return_to_select()
         except WallError as exc:
             self.controller.message(str(exc), error=True)
@@ -140,7 +167,7 @@ class WallOpeningTool(Tool):
             self.position = float(value)
             self._clamp_position()
             vals = self._candidate_values()
-            viewport.history.execute(EditWall(viewport.scene, self.group, vals))
+            viewport.history.execute(self._command(viewport.scene, vals))
             if viewport.history.last_error:
                 raise WallError(viewport.history.last_error)
             self.controller._active_opening_id = self.item["id"]
