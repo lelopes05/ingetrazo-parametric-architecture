@@ -644,6 +644,8 @@ class WallController(QObject):
         self.total_height_btn.setVisible(kind == "height")
         self.arc_btn.setVisible(line and path_kind in ("line", "arc"))
         self.opening_btn.setVisible(line and path_kind in ("line", "arc"))
+        self.door_btn.setVisible(line and path_kind in ("line", "arc"))
+        self.window_btn.setVisible(line and path_kind in ("line", "arc"))
         self.polygon_btn.setVisible(line and path_kind in ("line", "arc"))
         vertex = kind == "vertex" and path_kind in ("line", "arc")
         self.move_vertex_free_btn.setVisible(vertex)
@@ -751,12 +753,14 @@ class WallController(QObject):
         self.app.viewport.setFocus()
 
     def begin_hosted_fill(self, kind, anchor="center"):
-        wall,point=self._palette_target()
-        if wall is None:
+        # Toolbar actions do not originate from the wall's radial palette.
+        # Do not call _palette_target() in that case: it emits a false error.
+        if self._path_palette_wall is not None:
+            wall,point=self._palette_target()
+        else:
             walls=selected_walls(self.app.scene)
             wall=walls[0] if len(walls)==1 else None
-            if wall is not None:
-                point=path_world(wall)[0]
+            point=path_world(wall)[0] if wall is not None else None
         self.hide_path_palette()
         if wall is None:
             self.message("Selecione uma parede para inserir a porta ou janela.",error=True)
