@@ -974,6 +974,17 @@ class WallController(QObject):
             if result is not None:
                 oid,handle=result
                 return (str(wall.uid),oid,handle)
+            # An empty hole can be selected by clicking its face INTERIOR.
+            # Never claim the filled interior of an actual door/window:
+            # native IngeTrazo picking must still reach its Group/leaf.
+            free_ids={str(o.get("id")) for o in rec.get("openings",())
+                      if not o.get("source_id")}
+            if free_ids:
+                free_wires=[wire for wire in wires if wire[0] in free_ids]
+                inside=hit_test(viewport,free_wires,float(px),float(py),
+                                allow_interior=True)
+                if inside is not None:
+                    return (str(wall.uid),inside[0],inside[1])
         return None
 
     def _select_virtual_opening(self, identity):
