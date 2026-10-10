@@ -200,7 +200,9 @@ def hit_test(viewport, wires, x, y, *, active_id=None, threshold=9.0,
                     q=viewport._world_to_pixel(p)
                     if q is None:continue
                     d=((x-q[0])**2+(y-q[1])**2)**.5
-                    if d<=threshold and (vertex_best is None or d<vertex_best[0]):
+                    if d<=threshold and (vertex_best is None or d<=vertex_best[0]):
+                        # A real corner must outrank a coincident mid-depth
+                        # rectangular width grip when viewed head-on.
                         vertex_best=(d,opening_id,f"vertex-{i}")
         # Polygon front/back edges map to stable logical edges, even when
         # the rendered outline contains extra perpendicular depth segments.
