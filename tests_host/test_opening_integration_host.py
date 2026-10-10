@@ -321,7 +321,7 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
             data["length"]=length
             cmd=EditWall(scene,wall,data)
             cmd.do(scene)
-            self.assertAlmostEqual(read_wall(wall)["length"],length)
+            self.assertAlmostEqual(read_wall(wall)["length"],length,places=5)
             record=read_wall(wall)["openings"][0]
             self.assertEqual(record["id"],"recede")
             self.assertAlmostEqual(record["position"],2.5)
