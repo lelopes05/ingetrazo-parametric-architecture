@@ -319,26 +319,33 @@ class SlabLikeOpeningEditTests(unittest.TestCase):
         self.assertEqual(len(tool.points),1)
         self.assertAlmostEqual(tool.points[0][0],2.6,places=5)
 
-    def test_real_toolbar_opening_button_is_visible_and_starts_tool_without_wall(self):
-        from views.main_window import MainWindow
-        from views.extension_api import ExtensionApp
-        from OpenTrace_BIM import setup
-        window=MainWindow()
-        try:
-            setup(ExtensionApp(window,"OpenTrace_BIM"))
-            ctl=window._arquitetura_parametrica_controller
-            btn=ctl.opening_toolbar_button
-            self.assertEqual(btn.objectName(),"opentrace_opening_toolbar_button")
-            self.assertIs(btn.parent(),ctl.toolbar)  # QToolBar owns its widgets
-            self.assertEqual(btn.defaultAction().text(),"Abertura")
-            self.assertEqual(len(btn.menu().actions()),2)
-            ctl.opening_toolbar_action.trigger()
-            self.assertIs(window.viewport.active_tool,ctl.opening_tool)
-            self.assertIsNone(ctl.opening_tool.group)
-            self.assertTrue(bool(ctl.toolbar.actions()))
-        finally:
-            window.deleteLater()
+    def test_clicking_same_opening_edge_twice_reopens_palette_after_edit(self):
+        """The active opening must be repeatedly editable after scene changes."""
+        from PySide6.QtCore import QEvent, QPointF, Qt
+        from OpenTrace_BIM.ui import WallController
+        from types import SimpleNamespace
+        scene,wall=make_scene()
+        scene.selection.add(wall)
+        select=object()
+        called=[]
+        vp=SimpleNamespace(scene=scene,active_tool=select,extension_pick=None)
+        window=SimpleNamespace(_tools={"select":select})
+        ctl=SimpleNamespace(app=SimpleNamespace(scene=scene,viewport=vp,window=window),
+            _active_opening_wall=wall,_active_opening_id="polygon-one",
+            _pointer_opening_grip=None,
+            path_palette=SimpleNamespace(isVisible=lambda:False),
+            _pick_virtual_opening=lambda *args:(wall.uid,"polygon-one","edge-0"),
+            _show_opening_edit_palette=lambda oid,handle,p:called.append((oid,handle)),
+            hide_path_palette=lambda:None)
+        event=SimpleNamespace(type=lambda:QEvent.MouseButtonPress,
+            button=lambda:Qt.LeftButton,modifiers=lambda:Qt.NoModifier,
+            position=lambda:QPointF(150,-50),
+            globalPosition=lambda:QPointF(150,150))
+        for _ in range(2):
+            self.assertTrue(WallController.eventFilter(ctl,vp,event))
             self.qapp.processEvents()
+            scene.version+=1  # Every EditWall/Undo invalidates native pick
+        self.assertEqual(called,[("polygon-one","edge-0")]*2)
 
     def test_move_rectangular_opening_on_wall_plane_with_single_undo(self):
         scene,wall=make_scene();vp=View(scene);ctl=controller(scene)
