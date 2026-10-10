@@ -1056,6 +1056,12 @@ def _build_body_with_openings(values, previous, path, caps, offsets, body_name):
         if i0 is None or i1 is None:
             continue
         for idx, rev in ((i0, False), (i1, True)):
+            # At the wall boundary this edge is OPEN to the exterior,
+            # not a jamb. Drawing a reveal here seals the cut on the
+            # end and leaves nonmanifold edges after splitting its cap.
+            if (idx == 0 and o["s0"] <= 1.e-8 or
+                    idx == len(ss)-1 and o["s1"] >= L-1.e-8):
+                continue
             span = opening_slice(top_z[idx]-base_z[idx], o["sill"], o["height"])
             if not span["cut"]:
                 continue
