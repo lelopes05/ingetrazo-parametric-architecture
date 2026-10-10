@@ -434,6 +434,26 @@ class WallController(QObject):
         self.wall_type_menu=QMenu(self.app.window);self.wall_type_menu.addAction(self.simple_wall_action);self.wall_type_menu.addAction(self.composite_wall_action);self.wall_type_menu.addSeparator();self.wall_type_menu.addAction(self.curve_action)
         self.wall_menu_button=QToolButton(self.app.window);self.wall_menu_button.setDefaultAction(self.action);self.wall_menu_button.setMenu(self.wall_type_menu);self.wall_menu_button.setPopupMode(QToolButton.MenuButtonPopup);self.wall_menu_button.setToolTip(t("Parede — use a seta para escolher simples, composta ou curva."))
         self.toolbar.addWidget(self.wall_menu_button)
+        # First-class hosted opening tool: no searching through a wall's
+        # context menu. Default click starts a rectangular void; the arrow
+        # also offers a free, vertex-defined polygon like the slab tool.
+        self.opening_toolbar_action=QAction("Abertura",self.app.window)
+        self.opening_toolbar_action.setToolTip(
+            "Criar abertura: clique na ferramenta e depois na parede.")
+        self.opening_toolbar_action.triggered.connect(
+            lambda checked=False:self.begin_hosted_fill("opening"))
+        self.opening_toolbar_menu=QMenu(self.app.window)
+        self.opening_toolbar_menu.addAction(
+            "Vão retangular",lambda checked=False:self.begin_hosted_fill("opening"))
+        self.opening_toolbar_menu.addAction(
+            "Vão poligonal",lambda checked=False:self.begin_wall_polygon_from_toolbar())
+        self.opening_toolbar_button=QToolButton(self.app.window)
+        self.opening_toolbar_button.setObjectName("opentrace_opening_toolbar_button")
+        self.opening_toolbar_button.setDefaultAction(self.opening_toolbar_action)
+        self.opening_toolbar_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.opening_toolbar_button.setMenu(self.opening_toolbar_menu)
+        self.opening_toolbar_button.setPopupMode(QToolButton.MenuButtonPopup)
+        self.toolbar.addWidget(self.opening_toolbar_button)
         for kind,title in (("door","Porta"),("window","Janela")):
             menu=QMenu(self.app.window)
             for anchor,label in (("left","Âncora esquerda"),("center","Âncora central"),
@@ -804,9 +824,8 @@ class WallController(QObject):
             wall=walls[0] if len(walls)==1 else None
             point=path_world(wall)[0] if wall is not None else None
         self.hide_path_palette()
-        if wall is None:
-            self.message("Selecione uma parede para inserir a porta ou janela.",error=True)
-            return
+        # No preselected wall? Keep the placement tool active and acquire
+        # the wall under the next viewport click, as requested for Abertura.
         try:
             self.opening_tool.prepare(wall,point,kind=kind,fill_anchor=anchor)
             activate_wall_opening(self.app)
@@ -831,6 +850,19 @@ class WallController(QObject):
         self.polygon_tool.prepare(wall, anchor)
         activate_wall_polygon(self.app)
         self.app.viewport.setFocus()
+
+    def begin_wall_polygon_from_toolbar(self):
+        """Toolbar polygon opening: pick the host in the viewport first."""
+        walls=selected_walls(self.app.scene)
+        wall=walls[0] if len(walls)==1 else None
+        anchor=path_world(wall)[0] if wall is not None else None
+        self.hide_path_palette()
+        try:
+            self.polygon_tool.prepare(wall,anchor)
+            activate_wall_polygon(self.app)
+            self.app.viewport.setFocus()
+        except WallError as exc:
+            self.message(str(exc),error=True)
 
     def edit_wall_polygon(self, operation="move_vertex", *, element_index=None,
                           anchor=None):
