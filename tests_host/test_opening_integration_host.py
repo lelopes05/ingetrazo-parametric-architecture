@@ -8,6 +8,7 @@ from core.scene import Scene
 from OpenTrace_BIM.model import (DEFAULTS, make_wall_segment, make_arc_wall,
                                  read_wall, wall_opening_intervals)
 from OpenTrace_BIM.opening_controller import (all_opening_wires, hit_test)
+from OpenTrace_BIM.commands import EditWall, ReshapeWall
 from OpenTrace_BIM.door_window_commands import (
     CreateHostedFill, DeleteHostedOpening, sync_hosted_fill_placements
 )
@@ -90,6 +91,43 @@ class IntegratedOpeningRuntimeTests(unittest.TestCase):
         self.assertEqual(sync_hosted_fill_placements(scene),0)
         self.assertEqual(fill.uid,original_id)
         self.assertEqual(fill.ifc["global_id"],original_guid)
+
+    def test_selected_wall_resize_retains_host_selection_and_closed_cut(self):
+        scene,wall=scene_wall([{
+            "id":"host-resize","position":2.5,"width":.95,
+            "sill":0.0,"height":2.1}])
+        scene.selection.add(wall)
+        uid=wall.uid
+        old_body=wall.children[0]
+        values=read_wall(wall)
+        values["length"]=6.0
+        cmd=EditWall(scene,wall,values)
+        cmd.do(scene)
+        self.assertIn(wall,scene.selection)
+        self.assertEqual(wall.uid,uid)
+        self.assertIsNot(wall.children[0],old_body)
+        self.assertEqual(read_wall(wall)["openings"][0]["id"],"host-resize")
+        for child in wall.children:
+            self.assertFalse([edge for edge in child.mesh.edges
+                              if len(edge.faces)!=2])
+        cmd.undo(scene)
+        self.assertIn(wall,scene.selection)
+        self.assertIs(wall.children[0],old_body)
+        self.assertAlmostEqual(read_wall(wall)["length"],5.0)
+
+    def test_selected_wall_vertex_reshape_preserves_opening_record(self):
+        scene,wall=scene_wall([{
+            "id":"vertex-cut","position":2.5,"width":.8,
+            "sill":1.0,"height":1.0}])
+        scene.selection.add(wall)
+        uid=wall.uid
+        cmd=ReshapeWall(scene,wall,QVector3D(0,0,0),QVector3D(6,0,0))
+        cmd.do(scene)
+        self.assertEqual(wall.uid,uid)
+        self.assertIn(wall,scene.selection)
+        self.assertEqual(read_wall(wall)["openings"][0]["id"],"vertex-cut")
+        cmd.undo(scene)
+        self.assertAlmostEqual(read_wall(wall)["length"],5.0)
 
     def test_curved_host_outline_keeps_mesh_independent(self):
         values=dict(DEFAULTS,length=4.0,openings=[
