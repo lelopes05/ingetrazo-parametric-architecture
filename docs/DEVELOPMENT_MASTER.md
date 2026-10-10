@@ -291,3 +291,57 @@
 **Gate GitHub Actions confirmado:** [38051082659](https://github.com/lelopes05/opentrace-bim/actions/runs/38051082659), SHA `805e591c7b1ba0adddc558dd0695a48fb2c3f910`, `pure-tests=success` (47), `host-tests=success` (59), `experimental-package=success`; **106 testes**. Artifact `OpenTrace_BIM-EXPERIMENTAL-INSTALL` ID `11668974339`, `expired:false`. PR #8 continua **draft**, nenhuma atualização da `main`, release público 0.12.9 ou catálogo.
 
 **Próximo gate manual Windows:** depois de baixar o ZIP do run `38051082659`, instalar o diretório único `OpenTrace_BIM` e usar projeto de testes: clicar Abertura → clicar face da parede sem pré-seleção → criar e editar → clicar segunda vez no mesmo vão e numa aresta pelo círculo → mover aresta duas vezes e desfazer; experimentar menu do botão para polígono → definir vértices; conferir seleção de porta/janela hospedada e prévia/Undo de recuo. Aprovado automatizado **não significa** que interação real com GPU/mouse e perspectiva esteja validada.
+
+
+---
+
+## PASSAGEM DE CONTEXTO — próxima conversa / estado em 10/10/2026 (PR #8)
+
+> **Leia esta seção primeiro** ao continuar o OpenTrace BIM. Este bloco distingue implementação, resultado automatizado e validação manual. Não confundir o código do branch experimental com a versão lançada.
+
+### Identificação e limites de publicação
+
+- Repositório: `lelopes05/opentrace-bim`. Documento mestre: `docs/DEVELOPMENT_MASTER.md`.
+- Branch ativa para desenvolvimento: `dev/opening-controller-integration-2026-10-10`.
+- [PR #8](https://github.com/lelopes05/opentrace-bim/pull/8) **ABERTO, DRAFT, NÃO MESCLADO**, base `dev/wall-openings-2026-10-09` (não `main`). Preservar esses limites até aprovação expressa do usuário.
+- Último SHA de código efetivamente testado no gate principal: `805e591c7b1ba0adddc558dd0695a48fb2c3f910`.
+- [Workflow integrado aprovado #38051082659](https://github.com/lelopes05/opentrace-bim/actions/runs/38051082659): `pure-tests` 47, `host-tests` 59, `experimental-package` OK — **106 testes**; artefato `OpenTrace_BIM-EXPERIMENTAL-INSTALL` (ID `11668974339`, sem expiração no momento da consulta).
+- Documento mestre recebeu commit de documentação posterior ao código; documentação posterior também passou no CI. **Sempre confirmar PR head e execução mais recente antes de publicar um novo link**.
+- `main`, a versão **0.12.9** e a ficha do catálogo de extensões não foram alteradas nesta etapa. Não mesclar, alterar releases, tocar no catálogo nem promover experimental automaticamente.
+
+### Regra permanente de empacotamento / instalação
+
+**Um único ZIP baixável com uma única pasta `OpenTrace_BIM/` na raiz do ZIP, contendo dentro dela os arquivos do plugin.** Proibidos ZIP dentro de ZIP, arquivos do plugin soltos na raiz e outras pastas acima da pasta do plugin. A execução experimental usa o próprio ZIP criado por `actions/upload-artifact`, com validação por `download-artifact`, inspecionando estrutura e `__init__.py`. Não voltar ao formato com `opentrace-....zip` DENTRO de um segundo ZIP de GitHub Actions.
+
+### O que o usuário efetivamente confirmou no IngeTrazo Windows
+
+1. **Desapareceu a corrupção visual** do viewport que ocorria no redimensionamento da parede depois de utilizar aberturas.
+2. **O recuo da parede através do vão e o desfazer (Undo) do recuo funcionam** na versão que ele testou.
+3. **A primeira edição de uma abertura começou a funcionar** com abordagem inspirada na laje.
+4. Entretanto, no feedback **imediatamente anterior** ao último pacote: não era possível **editar o mesmo vão uma segunda vez** nem acessar claramente a **edição de aresta**. Ele solicitou ainda um botão **Abertura**, semelhante a Porta/Janela, para ativar a criação por clique direto na parede.
+5. **Ainda NÃO HÁ confirmação manual do usuário sobre as correções do pacote de 106 testes**: reedição consecutiva, pontos de aresta e novo botão devem ser os primeiros cenários testados na próxima conversa. O usuário pediu apenas atualizar este caderno e preparar um prompt de continuidade; não criar automaticamente outra versão.
+
+### Estado implementado no experimento, ainda pendente de validação visual
+
+- Aberturas são registros paramétricos persistentes no hospedeiro, com `opening_id`, `source_id` (quando esquadria hospedada) e identificador IFC. Recortar/alongar parede não elimina os dados do cortador, inclusive quando parte ou todo o vão deixa de interceptar a malha. Há regressões automatizadas de formas retangulares e poligonais e Undo.
+- Controladores virtuais desenham contorno, vértices e pontos de arestas; seleção nativa pelo `ExtensionApp.add_pickable`. `opening_controller.hit_test` entrega `vertex-N`, `edge-N` ou o ID do próprio vão; retângulos livres podem ser convertidos em polígonos **somente ao confirmar** edição da aresta/vértice, com Undo atômico.
+- Paleta radial `opening_edit_palette`: mover/inserir/excluir vértice, mover/estender aresta, mover/excluir abertura inteira. `WallPolygonTool` recebe índice do elemento já selecionado e usa contorno virtual na prévia, gravando no histórico somente ao confirmar. Retângulos livres podem mover estação horizontal e peitoril vertical; portas/janelas hospedadas preservam sua parametricidade e não são convertidas em polígonos.
+- **Correção da segunda edição:** o callback `_select_virtual_opening(None)` não apaga `_active_opening_id` se a parede segue selecionada; `ui.eventFilter` reabre a paleta diretamente ao clicar o mesmo vão ativo, sem depender de `extension_pick` que o host invalida quando `scene.version` muda. Um teste regressivo faz duas edições consecutivas de aresta, com seleção persistente.
+- **Arestas:** círculo laranja no ponto médio de cada aresta lógica da abertura ativa, distinto dos quadrados dos vértices; hit test de pontos médios com prioridade sobre segmentos de espessura.
+- **Botão Abertura:** botão permanente na barra superior, entre Parede e Porta/Janela; ação principal cria **vão retangular**, menu dá alternativas **vão retangular** e **vão poligonal**. `WallOpeningTool` e `WallPolygonTool` podem ser acionadas sem pré-seleção e capturam a parede por clique no viewport, com verificações de seleção/visibilidade. Porta e Janela continuam com suas opções e estão sujeitas a testes de regressão.
+- O smoke test de instalação abre `MainWindow` real do IngeTrazo em Qt offscreen, verifica inicialização da extensão, painel, ferramentas e presença do novo botão. Uma tentativa de teste redundante criando uma segunda janela introduziu erro de teardown Qt; o teste redundante foi substituído por verificação sem abrir outra janela. A execução **38051082659** passou completamente.
+
+### Prioridade imediata da próxima conversa (não iniciar novas frentes antes)
+
+1. **Pedir resultado do teste prático** da versão [38051082659](https://github.com/lelopes05/opentrace-bim/actions/runs/38051082659) no Windows, dando sequência ao relato anterior. Se falhar, solicitar sequência exata de cliques ou captura da tela, reproduzir e corrigir no **mesmo branch experimental**, com teste da ação real e novo gate.
+2. Roteiro curto de aceitação: botão **Abertura** → clicar na parede **sem pré-selecioná-la** → criar vão retangular → selecionar contorno/vértice/aresta → ver quadrados de vértices e círculos de aresta → mover a aresta e confirmar → clicar e **mover novamente** a mesma abertura → Undo/Redo → estender aresta → mover o vão inteiro → excluir via controlador; depois repetir com polígono criado pelo submenu. Conferir que a parede continua recuando/alongando e que porta/janela continuam hospedadas.
+3. Se persistir erro de repetição da edição, inspecionar `ui.py` nos métodos `_pick_virtual_opening`, `_select_virtual_opening`, `eventFilter`, `refresh`, `_show_opening_edit_palette` e `_run_opening_edit_action`. Conferir `viewport.extension_pick` / `scene.selection` / `scene.version` / `_active_opening_wall` e efeito do `return_to_select`. Testar **sequência completa de eventos reais**, não só comandos geométricos.
+4. Se não conseguir editar aresta, conferir projeção, prioridade de `hit_test`, o desenho do círculo no `draw_reference_overlay`, `edge-N`, o índice de `WallPolygonTool.prepare`, e a ativação de `opening_edit_palette`; comparar novamente com `slab_ui.py` e `slab_opening_edit.py`. Evitar quebrar a seleção de porta/janela ou malha nativa.
+5. Se botão não capturar parede, inspecionar `viewport.pick_group`, `WallOpeningTool._acquire_host`, `WallPolygonTool._acquire_host`, `on_hover` e `on_click`, inclusive perspectiva, parede curva e contexto de edição de grupos. A compatibilidade IngeTrazo Windows precisa de confirmação manual.
+6. Aumentar testes de integração conforme reprodução e validar conteúdo real do ZIP. Não considerar concluído só porque PySide6 offscreen passa. Atualizar **este documento mestre** e o PR #8 ao fim de cada etapa. Só gerar nova versão quando necessário e com `pure-tests`, `host-tests`, `experimental-package` verdes.
+
+### Trabalhos posteriores, não confundir com a prioridade atual
+
+- Paridade avançada com laje para curvas, chanfros e arredondamento das bordas de vãos (a malha poligonal atual trabalha com arestas retas).
+- Fluxos de portas e janelas paramétricas mais completos (hotspots, posições, larguras, giro, propriedades, vínculo correto com `opening_id`), verificações IFC em Archicad/FreeCAD e persistência `.igz`.
+- Paredes curvas e composições multicamadas, persistência IFC, interação real OpenGL Windows, limpeza de ferramentas de abertura redundantes. **Não mexer no que o usuário já validou sem teste regressivo**.
