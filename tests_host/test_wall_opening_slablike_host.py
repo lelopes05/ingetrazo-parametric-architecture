@@ -364,5 +364,42 @@ class SlabLikeOpeningEditTests(unittest.TestCase):
         self.assertAlmostEqual(opening(wall,"rect-two")["position"],4.1,places=5)
 
 
+    def test_repeated_edits_same_edge_preserve_identity_across_undo_redo(self):
+        """The second and third edit of the SAME edge must still be possible."""
+        scene, wall=make_scene()
+        vp=View(scene)
+        ctl=controller(scene)
+        scene.selection.add(wall)
+        ctl._active_opening_wall=wall
+        ctl._active_opening_id="polygon-one"
+        initial=copy.deepcopy(opening(wall))
+        for dz in (.10,.12,-.05):
+            wire=all_opening_wires(wall,read_wall(wall))[0][1]
+            mid=(wire[2][0]+wire[2][1])*.5
+            self.assertEqual(hit_test(vp,all_opening_wires(wall,read_wall(wall)),
+                                      mid.x()*100,-mid.z()*100,
+                                      active_id="polygon-one"),
+                             ("polygon-one","edge-2"))
+            tool=WallPolygonTool(ctl)
+            tool.prepare(wall,mid,opening_id="polygon-one",
+                         operation="move_edge",index=2)
+            tool.on_activate(vp)
+            tool.on_hover(ctx(vp,mid.x(),mid.z()+dz))
+            tool.on_click(ctx(vp,mid.x(),mid.z()+dz))
+            self.assertEqual(opening(wall)["ifc_global_id"],initial["ifc_global_id"])
+            self.assertEqual(ctl._active_opening_id,"polygon-one")
+            self.assertIs(ctl._active_opening_wall,wall)
+            self.assertIn(wall,scene.selection)
+        self.assertEqual(len(vp.history.commands),3)
+        edited=copy.deepcopy(opening(wall))
+        for command in reversed(vp.history.commands):
+            command.undo(scene)
+        self.assertEqual(opening(wall)["polygon"],initial["polygon"])
+        for command in vp.history.commands:
+            command.do(scene)
+        self.assertEqual(opening(wall)["polygon"],edited["polygon"])
+        self.assertEqual(opening(wall,"rect-two")["ifc_global_id"],"rect-guid")
+
+
 if __name__=="__main__":
     unittest.main()

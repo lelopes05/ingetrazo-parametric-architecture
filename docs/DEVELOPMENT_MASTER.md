@@ -1,6 +1,6 @@
 # OpenTrace BIM — Registro mestre de desenvolvimento
 
-**Referência:** 2026-10-09 · **Repositório:** `lelopes05/opentrace-bim` · **Release preservado:** 0.12.9
+**Referência:** 2026-10-10 · **Repositório:** `lelopes05/opentrace-bim` · **Release preservado:** 0.12.9
 
 > Abrir a próxima conversa lendo este arquivo na branch/PR de desenvolvimento mais recente. Validar commits/arquivos reais antes de declarar algo integrado. Atualizar este registro ao fechar cada bloco.
 
@@ -14,7 +14,7 @@
 
 - Responder às perguntas do usuário ANTES de programar. Ele valida comportamento e interface; revisão de arquitetura e código é responsabilidade técnica do assistente.
 - Trabalhar em blocos e avançar com frentes independentes enquanto o usuário testa outras. Evitar alterações simultâneas ao mesmo arquivo; reconciliar antes de juntar.
-- Não empacotar, instalar, mesclar na `main`, publicar release ou atualizar catálogo sem autorização. Branch de desenvolvimento + PR rascunho permitidos.
+- Não instalar, mesclar na `main`, publicar release ou atualizar catálogo sem autorização. Empacotamento automático **experimental** via CI é permitido, desde que seja um único ZIP contendo somente `OpenTrace_BIM/` e os arquivos do plugin.
 - Distinguir testes Python de execução do plugin dentro do IngeTrazo. Não alegar teste de runtime não executado.
 - Patches de conversas anteriores NÃO equivalem a commits no GitHub. Conferir arquivos e reaplicar conforme necessário.
 
@@ -44,15 +44,15 @@
 | Etapa atual | Escopo | Estado verificado / referência histórica |
 |---|---|---|
 | 00 | Fundação técnica, contratos e testes | Preparada no PR #3; ainda não mesclada na main |
-| **01** | **Aberturas de paredes:** retângulos no piso/topo, abertura livre poligonal, edição por vértices/arestas, paredes curvas e malha sem arestas indevidas | **Código experimental + UI inicial no PR #5.** Testes puros/compilação passam em CI; avaliação de runtime, malha e cortes pendente |
-| **02** | **Portas e janelas paramétricas:** objetos de preenchimento, uma porta de abrir e uma janela, âncoras esquerda/centro/direita, inversão de giro, hotspots/paleta radial, IFC | **Próxima prioridade, depende da 01.** Antigo bloco 05B; não implementado |
-| 03 | Integração de criação/edição de aberturas, portas e janelas à paleta | Pendente; depende da geometria e dos objetos das etapas 01–02 |
-| 04 | Interface geral: barra de criação, menus, Informações do Projeto, manual, Sobre, alinhamento/distribuição X/Y/Z | Parcial em PRs #4 e #6, ambos não mesclados; podem evoluir em paralelo sem conflitar com 01 |
+| **01** | Aberturas de parede, cortes, vértices e arestas, edição repetida | **PR #8 experimental:** recuo, Undo, viewport e primeira edição aprovados pelo usuário; reedição, arestas e botão Abertura aguardam Windows; gate anterior: 106 testes. |
+| **02** | Porta e janela paramétricas, âncoras, hotspots, giro e IFC | **Já integradas experimentalmente no PR #8 a partir do PR #7**, ainda com validação visual parcial. Não refazer a implementação. |
+| 03 | Paletas de criação e edição de aberturas/portas/janelas | **Parcial no PR #8:** botão Abertura, Porta/Janela, controles e radial; aceitação Windows pendente. |
+| **04** | **Interface geral:** criação, menus, Projeto, manual, Sobre, alinhamento/distribuição X/Y/Z | **Frente B ativa:** integrar B1 Informações do Projeto (PR #4) e B2 alinhamento XYZ (PR #6) ao PR #8; menus e manual seguem em blocos seguintes. |
 | 05 | Vistas arquitetônicas: cenas, plantas por pavimento, cortes, elevações, escalas | Barra em patch anterior; cenas automáticas pendentes |
 | 06 | Representação 2D: cotas, símbolos e tramas vetoriais paramétricas por material/camada e escala | Contrato preparado, renderizador/editor pendentes |
 | 07 | Compositor, consolidação IFC, interoperabilidade, round-trip e testes finais | Integração transversal e validação final pendentes |
 
-**Ordem prioritária de execução:** 00 (fundação de suporte) → **01 aberturas** → **02 portas e janelas** → 03 integração à paleta → 04 interface geral → 05 vistas → 06 representação 2D/tramas → 07 Compositor/IFC/consolidação. Partes independentes das etapas 04 e 05 podem ser preparadas paralelamente. IFC e testes básicos ocorrem desde o início, embora a consolidação final seja 07.
+**Ordem por dependência:** 00 → 01 → 02 → 03 → 05 → 06 → 07, com **etapa 04 executada agora em paralelo à 01**. Duas frentes ativas: **A = aberturas/edição** e **B = interface geral**. Não bloquear trabalho independente da UI enquanto aguarda testes visuais de aberturas. IFC e testes são transversais.
 
 **Mapa de números antigos (somente para leitura de commits e PRs):** 00 → 00; antigo 05A → novo 01; antigo 05B → novo 02; parte da antiga 01 → novo 03 (integração à paleta); antigas 01 e 02 → novo 04 (interface/alinhamento); antiga 03 → novo 05; antigas 04 e 06 → novo 06; antiga 07 → novo 07. O registro histórico abaixo ainda pode mencionar 05A/05B ao citar o código/PR de sua época.
 
@@ -345,3 +345,22 @@
 - Paridade avançada com laje para curvas, chanfros e arredondamento das bordas de vãos (a malha poligonal atual trabalha com arestas retas).
 - Fluxos de portas e janelas paramétricas mais completos (hotspots, posições, larguras, giro, propriedades, vínculo correto com `opening_id`), verificações IFC em Archicad/FreeCAD e persistência `.igz`.
 - Paredes curvas e composições multicamadas, persistência IFC, interação real OpenGL Windows, limpeza de ferramentas de abertura redundantes. **Não mexer no que o usuário já validou sem teste regressivo**.
+
+## Decisão vigente — grandes blocos paralelos Aberturas + Interface (2026-10-10)
+
+O mantenedor **autorizou o trabalho simultâneo**. Esta decisão substitui a instrução histórica na seção “Prioridade imediata da próxima conversa (não iniciar novas frentes antes)”. Preservar oito etapas 00–07; não renumerar nem tratar PRs #4/#6 como mesclados. A branch única de integração continua `dev/opening-controller-integration-2026-10-10` (PR #8 draft), sem alterações em `main`, release 0.12.9 ou catálogo.
+
+**Frente A — etapa 01 e parte da 03:** concluir a sessão de edição de um vão, com **múltiplas edições consecutivas da mesma aresta**, controles próprios para vértices/arestas, movimento/exclusão do vazio, Undo/Redo e botão Abertura de clique direto. Manter os itens comprovados no Windows (viewport, recuo, Undo e primeira edição). Usar a UX da laje como referência; não reescrever geometria já testada sem falha reproduzida. Foi acrescentada uma regressão host para editar o MESMO segmento três vezes, desfazer/refazer e conservar ID/seleção. O run 38051082659 (106 testes) é a **última referência aprovada anterior a esta integração**, não resultado dos novos testes.
+
+**Frente B — etapa 04, organizada em blocos grandes com gates independentes:**
+- **B1 Projeto:** transportar o PR #4 para o PR #8: página Informações do Projeto ⓘ, Cliente/Localização no registro BIM único, conservação de campos anteriores/futuros e leitura de pavimentos sem duplicar Níveis.
+- **B2 Alinhar e distribuir:** transportar o PR #6, paleta ↔ em X/Y/Z, início/centro/fim e espaçamento livre igual. Restrito a grupos completos e com histórico atômico.
+- **B3 Barra e menus:** organizar ferramentas em grupos de criação, mantendo a barra de Abertura/Porta/Janela; desenhar transição segura antes de alterar o toolbar e seu fluxo.
+- **B4 Ajuda e Sobre:** manual contextual, O que há de novo, GitHub real, IngeTrazo #449 e atualizador; não inventar links ou recursos.
+- **B5 Aceitação visual e interoperabilidade UI:** integrar menus/painéis e verificar montagem real QMainWindow, navegação, persistência, foco, seleção e regressões de abertura.
+
+**Integração deste checkpoint:** B1 e B2 trazidos dos rascunhos PR #4 e #6, pois os arquivos em comum `bim.py`, `bim_ui.py` e `suite_panel.py` eram idênticos aos da base `dev/architecture-foundation-2026-10-09` antes da porta — nenhuma edição recente foi descartada. Módulos adicionais `arrange_core.py`, `arrange_ui.py` e testes puros também portados. Teste de fumaça Qt com MainWindow real verifica a coexistência de ⓘ, ↔ e botão Abertura e a preservação da ferramenta ativa; sem janela extra redundante.
+
+**Gate ainda não confirmado para o NOVO commit:** compilar, testes puros, integração com IngeTrazo e inicialização Qt offscreen, e ZIP automático em formato **uma pasta OpenTrace_BIM/ na raiz, sem ZIP dentro de ZIP**. **Não anunciar novo artefato como pronto até CI verde e não equiparar isso à validação manual Windows.**
+
+**Próximo bloco no PR #8:** se os gates passarem, avançar B3 (estrutura de menus/barra) e manter A1 pendente de aceitação do usuário. Alterar o controlador da abertura somente se novo teste ou reprodução mostrar falha real; ambas as frentes seguem em paralelo.

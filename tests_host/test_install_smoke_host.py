@@ -56,6 +56,25 @@ class InstallationSmokeTests(unittest.TestCase):
             self.assertTrue(getattr(ctl,"opening_selector",None))
             self.assertTrue(getattr(ctl,"opening_fields",None))
             self.assertIsNotNone(getattr(window,"_arquitetura_parametrica_suite_panel",None))
+            # Integrated interface modules must coexist with the live opening UI.
+            suite=window._arquitetura_parametrica_suite_panel
+            self.assertIn("project",suite.pages)
+            self.assertEqual(suite.project_info_button.accessibleName(),"Informações do Projeto")
+            self.assertEqual(suite.arrange_button.accessibleName(),"Alinhar e distribuir objetos")
+            old_tool=window.viewport.active_tool
+            suite.project_info_button.click()
+            self.assertIs(suite.stack.currentWidget(),suite.pages["project"])
+            self.assertIs(window.viewport.active_tool,old_tool)
+            from unittest.mock import patch
+            with patch("PySide6.QtWidgets.QMessageBox.warning",
+                       side_effect=AssertionError("Arrange palette failed to open")):
+                suite.open_arrange()
+            self.assertIsNotNone(suite._arrange_panel)
+            self.assertEqual(suite._arrange_panel.axis.count(),3)
+            self.assertIs(window.viewport.active_tool,old_tool)
+            suite.show_page("wall")
+            self.assertIs(suite.stack.currentWidget(),suite.pages["wall"])
+            self.assertIs(window.viewport.active_tool,old_tool)
         finally:
             window.deleteLater()
             qt.processEvents()
