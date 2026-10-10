@@ -199,3 +199,47 @@ def reverse_hosted_door(scene, wall, group):
         raise FillError("Selecione uma porta paramétrica.")
     return EditHostedFill(scene, wall, group,
                           {"swing": reverse_swing(rec["params"])["swing"]})
+
+class DeleteHostedOpening(Command):
+    """Remove one hosted void and its independent door/window atomically.
+
+    Both Undo and Redo preserve the fill object, UID and IFC identity.
+    """
+
+    def __init__(self, scene, wall, opening_id):
+        root_edit_allowed(scene)
+        values = read_wall(wall)
+        opening = next((o for o in values["openings"]
+                        if o.get("id") == opening_id), None)
+        if opening is None:
+            raise FillError("A abertura não existe mais na parede.")
+        self.wall = wall
+        self.group = None
+        for candidate in scene.groups:
+            rec = _fill_record(candidate)
+            if (rec and rec.get("host_id") == wall.uid
+                    and rec.get("opening_id") == opening_id):
+                self.group = candidate
+                break
+        if opening.get("source_id") and self.group is None:
+            raise FillError("A abertura está ligada a uma esquadria ausente.")
+        self.index = scene.groups.index(self.group) if self.group else None
+        values["openings"] = [o for o in values["openings"]
+                              if o.get("id") != opening_id]
+        self.wall_edit = EditWall(scene, wall, values)
+
+    def do(self, scene):
+        self.wall_edit.do(scene)
+        if self.group is not None:
+            if self.group not in scene.groups:
+                self.wall_edit.undo(scene)
+                raise FillError("A esquadria vinculada não está mais no documento.")
+            scene.groups.remove(self.group)
+            scene.selection.discard(self.group)
+            scene.version += 1
+
+    def undo(self, scene):
+        self.wall_edit.undo(scene)
+        if self.group is not None:
+            scene.groups.insert(min(self.index, len(scene.groups)), self.group)
+            scene.version += 1
