@@ -957,13 +957,20 @@ class WallController(QObject):
         No hidden scene Group is created: the stable identity is host UID +
         opening ID. The host calls this before conventional geometry picking.
         """
-        if viewport.scene.edit_group is not None:
+        editing=viewport.scene.edit_group
+        # An IngeTrazo group-edit session edits raw mesh, not the authored
+        # parametric record. Only the wall ITSELF is eligible here; on pick,
+        # exit safely to root before invoking parametric EditWall commands.
+        if editing is not None and wall_record(editing) is None:
             return None
-        for wall in list(getattr(viewport.scene, "groups", ())):
+        candidates=[editing] if editing is not None else list(
+            getattr(viewport.scene, "groups", ()))
+        for wall in candidates:
             rec=wall_record(wall)
             if not rec or not rec.get("openings"):
                 continue
-            if not viewport.scene.entity_visible(wall) or not viewport.scene.entity_selectable(wall):
+            if (not viewport.scene.entity_visible(wall)
+                    or not viewport.scene.entity_selectable(wall)):
                 continue
             wires=self._opening_wires_for(wall)
             if not wires:
@@ -998,6 +1005,11 @@ class WallController(QObject):
                    and wall_record(w) is not None),None)
         if wall is None:
             return
+        # Make edits through the authored wall command at the root. The
+        # host handles exiting/restoring nested transforms and undo state.
+        vp=self.app.viewport
+        if getattr(self.app.scene,"edit_group",None) is wall:
+            vp.end_group_edit()
         self._active_opening_wall=wall
         self._active_opening_id=oid
         self._loaded_key=None
