@@ -181,3 +181,12 @@
 - Nenhuma alteração na `main`, no release público 0.12.9 ou no catálogo. Não fazer merge ou publicar sem validação e autorização.
 
 **Retomada recomendada:** conferir o gate mais recente do [PR #8](https://github.com/lelopes05/opentrace-bim/pull/8) e baixar o ZIP **experimental** do workflow integrado aprovado; validar a seleção e redimensionamento na viewport real, corrigir qualquer artefato de seleção com logs/imagens de reprodução; depois fechar a interoperabilidade IFC e consolidar PRs na ordem da integração aprovada.
+
+### Fechamento do gate automatizado do código integrado — 2026-10-10
+
+- **HEAD de código testado:** `333222b7f35bf3be45c20f973105212140ef26fa`. [GitHub Actions run 38020414977](https://github.com/lelopes05/opentrace-bim/actions/runs/38020414977) terminou com **success** em `pure-tests`, `host-tests` e `experimental-package`.
+- **Quantidade comprovada pelos logs:** `43 tests ... OK` em Python puro e **`29 tests ... OK` em IngeTrazo real/PySide6 offscreen**, total **72 testes**; `compileall` também passou.
+- Incluem regressões novas de parede **selecionada** ao alterar comprimento e vértice, malha manifold após editar abertura e Undo, vão de porta no piso, edição independente de vãos, exclusão atômica, mover hospedeiro, arco, IFC e persistência `.igz` em testes headless. **Não comprovam** o comportamento raster/OpenGL visível apenas com a seleção ativa no desktop.
+- **Pacote automático, experimental e não publicado como release:** artefato `opentrace-integrated-openings-EXPERIMENTAL`, ID `11658221572`, derivado exatamente do SHA verde `333222b7`. Baixar na seção **Artifacts** da execução 38020414977 (login GitHub pode ser exigido). Contém `opentrace-integrated-openings-EXPERIMENTAL.zip` e respectivo `.sha256`.
+- Próxima validação MANUAL: em projeto de teste e backup, criar parede reta/curva/multicamadas, porta no piso, janela, vãos livres, selecionar o contorno e editar hotspots, reduzir comprimento e arrastar vértices com a parede selecionada, observar arestas e viewport, curvas longas; validar Undo/Redo, salvar/reabrir e IFC em programa externo. O defeito específico de viewport **não pode ser dado como resolvido antes disso**.
+- **Não houve merge, release, alteração no catálogo nem mudança na `main`.** PR #8 permanece draft.
